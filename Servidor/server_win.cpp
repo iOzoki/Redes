@@ -207,13 +207,11 @@ namespace Servidor {
 
         class ChatServidor {
         private:
-            SOCKET socketServidorOuvinte; // Socket que escuta por novas conexões
-            sockaddr_in enderecoServidor;
-            std::vector<std::unique_ptr<std::thread>> threadsClientes; // Armazena as threads dos clientes
-            std::vector<SOCKET> socketsClientesAtivos; // Lista de sockets dos clientes ativos
-            std::mutex mutexSocketsClientes;       // Mutex para proteger o acesso a socketsClientesAtivos
+            SOCKET socketServidorOuvinte;
+            Persistencia::GerenciadorUsuarios gerenciadorUsuarios;
+            std::map<uint32_t, TratadorCliente*> sessoesAtivas;
+            std::mutex mutexSessoes;
 
-            // Métodos privados para organização interna da inicialização e limpeza
             bool inicializarWinsock() {
                 WSADATA wsaData;
                 int resultado = WSAStartup(MAKEWORD(2, 2), &wsaData);
