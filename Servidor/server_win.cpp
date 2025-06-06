@@ -71,6 +71,8 @@ namespace Servidor {
                 return this->passwordHash == hashSenhaFornecida;
             }
 
+            std::string getPasswordHashParaSalvar() const { return passwordHash; }
+
         };
 
         class Mensagem {
@@ -112,24 +114,57 @@ namespace Servidor {
 
     namespace Controller {
 
-        // Forward declaration da classe ChatServidor para que TratadorCliente possa referenciá-la
         class ChatServidor;
 
         class TratadorCliente {
         private:
             SOCKET socketCliente;
-            ChatServidor* instanciaServidor; // Ponteiro para a instância do servidor principal
+            ChatServidor* instanciaServidor; // Ponteiro do servidor
+            std::unique_ptr<Model::Usuario> usuarioLogado;
+            std::string bufferRecepcao;
+
+            std::vector<std::string> parseMensagem(const std::string& msg) {
+                std::vector<std::string> partes;
+                std::stringstream ss(msg);
+                std::string parte;
+                while (std::getline(ss, parte, '|')) {
+                    partes.push_back(parte);
+                }
+                return partes;
+            }
+
+            void handleLogin(const std::vector<std::string>& params) {
+                if (params.size() < 3) {
+                    std::cerr << "Comando LOGIN mal formado." << std::endl;
+                    return;
+                }
+                const std::string& username = params[1];
+                const std::string& password = params[2];
+
+                std::cout << "Tentativa de login para o usuario: " << username << std::endl;
+
+                std::string resposta = "LOGIN_OK|ana,1;beto,0;carlos,1\n";
+                send(socketCliente, resposta.c_str(), resposta.length(), 0);
+            }
+
+            void handleEnvioMensagem(const std::vector<std::string>& params) {
+                if (params.size() < 3) return;
+                std::cout << "Usuario " << (usuarioLogado ? usuarioLogado->getUsername() : "N/A")
+                          << " enviou mensagem para " << params[1] << ": " << params[2] << std::endl;
+            }
+
+            // Placeholder para o tratamento de registro
+            void handleRegistro(const std::vector<std::string>& params){
+                std::cout << "Tentativa de registro..." << std::endl;
+            }
+
 
         public:
             TratadorCliente(SOCKET socket, ChatServidor* servidor)
                 : socketCliente(socket), instanciaServidor(servidor) {
-                // Construtor inicializa o socket do cliente e a referência ao servidor
             }
 
             ~TratadorCliente() {
-                // O socket do cliente é fechado pelo ChatServidor ao remover o cliente.
-                // Se houvesse outros recursos alocados especificamente pelo TratadorCliente,
-                // seriam liberados aqui.
             }
 
             // Método que contém a lógica que estava na função global handle_client()
