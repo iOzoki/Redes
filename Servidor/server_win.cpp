@@ -161,14 +161,48 @@ namespace Servidor {
 
         public:
             TratadorCliente(SOCKET socket, ChatServidor* servidor)
-                : socketCliente(socket), instanciaServidor(servidor) {
+                : socketCliente(socket), instanciaServidor(servidor), usuarioLogado(nullptr) {
             }
 
             ~TratadorCliente() {
             }
 
             // Método que contém a lógica que estava na função global handle_client()
-            void processarComunicacaoCliente();
+            void processarComunicacaoCliente() {
+                char buffer[TAMANHO_BUFFER];
+                int bytesRecebidos;
+                while ((bytesRecebidos = recv(socketCliente, buffer, TAMANHO_BUFFER, 0)) > 0) {
+                    bufferRecepcao.append(buffer, bytesRecebidos);
+                    size_t pos;
+
+                    while ((pos = bufferRecepcao.find('\n')) != std::string::npos) {
+                        std::string mensagemCompleta = bufferRecepcao.substr(0, pos);
+                        bufferRecepcao.erase(0, pos + 1);
+                        if (!mensagemCompleta.empty()) {
+                            std::cout << "Recebido comando completo: " << mensagemCompleta << std::endl;
+                            std::vector<std::string> partes = parseMensagem(mensagemCompleta);
+
+                            if (partes.empty()) continue;
+                            const std::string& comando = partes[0];
+
+                            if (comando == "LOGIN") {
+                                handleLogin(partes);
+                            }
+                            else if (comando == "REGISTRO") {
+                                handleRegistro(partes);
+                            }
+                            else if (comando == "MSG") {
+                                handleEnvioMensagem(partes);
+                            }
+                            else {
+                                std::cerr << "Comando desconhecido recebido: " << comando << std::endl;
+                            }
+                        }
+                    }
+                }
+
+                std::cout << "Cliente desconectou. Socket: " << socketCliente << std::endl;
+            }
         };
 
         class ChatServidor {
