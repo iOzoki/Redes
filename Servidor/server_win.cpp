@@ -235,7 +235,7 @@ namespace Servidor {
 
             void configurarEnderecoServidor(int porta) {
                 enderecoServidor.sin_family = AF_INET;
-                enderecoServidor.sin_addr.s_addr = INADDR_ANY; // Escuta em todas as interfaces de rede
+                enderecoServidor.sin_addr.s_addr = INADDR_ANY;
                 enderecoServidor.sin_port = htons(porta);
                 std::cout << "Endereco do servidor configurado para a porta " << porta << "." << std::endl;
             }
@@ -273,11 +273,9 @@ namespace Servidor {
 
         public:
             ChatServidor() : socketServidorOuvinte(INVALID_SOCKET) {
-                // Construtor padrão
             }
 
             ~ChatServidor() {
-                // Garante que os sockets e o Winsock sejam limpos ao destruir o objeto
                 std::cout << "Destruindo ChatServidor..." << std::endl;
                 for (const auto& s : socketsClientesAtivos) {
                      closesocket(s); // Fecha todos os sockets de cliente restantes
@@ -285,11 +283,6 @@ namespace Servidor {
                 fecharSocketOuvinte();
                 limparRecursosWinsock();
 
-                // Espera que todas as threads de cliente terminem (join)
-                // Em um servidor real, seria importante sinalizar para as threads terminarem
-                // antes de fazer o join, para evitar bloqueios indefinidos.
-                // Por simplicidade e para manter o comportamento de detach do código original,
-                // a gestão explícita de join não foi adicionada aqui, mas é uma consideração importante.
             }
 
             // Método principal para iniciar e rodar o servidor
@@ -317,27 +310,17 @@ namespace Servidor {
                 while (true) {
                     SOCKET socketNovoCliente = accept(socketServidorOuvinte, nullptr, nullptr);
                     if (socketNovoCliente == INVALID_SOCKET) {
-                        std::cerr << "Erro no accept: " << WSAGetLastError() << std::endl;
-                        // Considerar se o erro é fatal para o socket ouvinte.
-                        // Se for, pode ser necessário sair do loop ou recriar o socket ouvinte.
-                        // Por ora, continua tentando aceitar novas conexões.
                         continue;
                     }
 
                     std::cout << "Novo cliente conectado. Socket: " << socketNovoCliente << std::endl;
                     adicionarClienteSocket(socketNovoCliente);
 
-                    // Cria e inicia uma nova thread para lidar com este cliente.
-                    // O objeto TratadorCliente é criado dinamicamente e a thread assume sua posse.
-                    // Usamos uma lambda para capturar as variáveis necessárias e chamar o método.
-                    // A thread será detached, como no código original.
                     std::thread threadDoCliente([socketNovoCliente, this]() {
-                        // Cria o objeto TratadorCliente na stack da thread ou dinamicamente
                         TratadorCliente tratador(socketNovoCliente, this);
                         tratador.processarComunicacaoCliente();
                     });
-                    threadDoCliente.detach(); // Libera a thread para rodar independentemente.
-                                            // threadsClientes.push_back(std::make_unique<std::thread>(std::move(threadDoCliente))); // Se fosse gerenciar com join
+                    threadDoCliente.detach();
                 }
             }
 
