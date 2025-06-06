@@ -7,6 +7,9 @@
 #include <string>
 #include <algorithm>
 #include <memory>
+#include <atomic>
+#include <sstream>
+#include <map>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -81,11 +84,11 @@ namespace Servidor {
 
         public:
             Mensagem(uint32_t remetenteId, uint32_t destinatarioId, const std::string& textoConteudo)
-        : idMensagem(gerarIdUnicoParaMensagem()),
-          idRemetente(remetenteId),
-          idDestinatario(destinatarioId),
-          conteudo(textoConteudo),
-          entregue(false) {
+            : idMensagem(gerarIdUnicoParaMensagem()),
+            idRemetente(remetenteId),
+            idDestinatario(destinatarioId),
+            conteudo(textoConteudo),
+            entregue(false) {
                 timestamp = static_cast<uint64_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
             }
 
@@ -332,151 +335,91 @@ namespace Servidor {
     } // fim do namespace Controller
     namespace Persistencia {
         class GerenciadorUsuarios {
-private:
-    const std::string nomeArquivo = "usuarios.dat"; // Nome do arquivo binário onde os usuários serão salvos
+        private:
+            const std::string nomeArquivo = "usuarios.dat";
 
-    // --- MÉTODOS DE SERIALIZAÇÃO AUXILIARES ---
-    // Estas são funções que nos ajudam a escrever e ler tipos específicos no arquivo.
+            void escreverString(std::ofstream& arquivo, const std::string& str) {
+                size_t tamanho = str.size();
+                arquivo.write(reinterpret_cast<const char*>(&tamanho), sizeof(tamanho));
+                arquivo.write(str.c_str(), tamanho);
+            }
 
-    // Função auxiliar para escrever uma string no arquivo
-    // 1. Escreve o tamanho da string
-    // 2. Escreve os dados da string
-    void escreverString(std::ofstream& arquivo, const std::string& str) {
-        // Pega o tamanho da string
-        size_t tamanho = str.size();
-        // Escreve o tamanho no arquivo. Usamos write para dados binários.
-        // reinterpret_cast é necessário para converter o ponteiro de size_t para char*
-        arquivo.write(reinterpret_cast<const char*>(&tamanho), sizeof(tamanho));
-        // Escreve os caracteres da string no arquivo.
-        arquivo.write(str.c_str(), tamanho);
-    }
+            std::string lerString(std::ifstream& arquivo) {
+                size_t tamanho;
+                arquivo.read(reinterpret_cast<char*>(&tamanho), sizeof(tamanho));
 
-    // Função auxiliar para ler uma string do arquivo
-    // 1. Lê o tamanho da string
-    // 2. Lê os dados da string
-    std::string lerString(std::ifstream& arquivo) {
-        size_t tamanho;
-        // Lê o tamanho da string do arquivo.
-        arquivo.read(reinterpret_cast<char*>(&tamanho), sizeof(tamanho));
+                if (arquivo.eof()) return "";
 
-        // Verifica se a leitura foi bem-sucedida e se não chegamos ao fim do arquivo
-        if (arquivo.eof()) return ""; // Retorna string vazia se for o fim do arquivo
+                std::string str(tamanho, '\0');
+                arquivo.read(&str[0], tamanho);
 
-        // Cria um buffer (espaço na memória) para ler os caracteres
-        std::string str(tamanho, '\0');
-        // Lê os caracteres do arquivo para dentro da string.
-        arquivo.read(&str[0], tamanho);
+                return str;
+            }
 
-        return str;
-    }
+        public:
 
-public:
-    // --- MÉTODOS PÚBLICOS ---
+            // Método para salvar um ÚNICO usuário no final do arquivo
+            // Nota: Em um sistema real, seria melhor salvar todos de uma vez
+            // para evitar inconsistências, mas para aprender, vamos fazer um por um.
+            void salvarUsuario(const Model::Usuario& usuario) {
+                std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::app);
 
-    // Método para salvar um ÚNICO usuário no final do arquivo
-    // Nota: Em um sistema real, seria melhor salvar todos de uma vez
-    // para evitar inconsistências, mas para aprender, vamos fazer um por um.
-    void salvarUsuario(const Model::Usuario& usuario) {
-        // Abre o arquivo em modo binário e para adicionar ao final (append)
-        std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::app);
+                if (!arquivo.is_open()) {
+                    throw std::runtime_error("Nao foi possivel abrir o arquivo para escrita: " + nomeArquivo);
+                }
 
-        if (!arquivo.is_open()) {
-            throw std::runtime_error("Nao foi possivel abrir o arquivo para escrita: " + nomeArquivo);
-        }
+                uint32_t id = usuario.getId();
+                arquivo.write(reinterpret_cast<const char*>(&id), sizeof(id));
 
-        // --- SERIALIZAÇÃO DO OBJETO USUARIO ---
+                escreverString(arquivo, usuario.getUsername());
 
-        // 1. Pega o ID do usuário
-        uint32_t id = usuario.getId();
-        // Escreve o ID no arquivo (tamanho fixo)
-        arquivo.write(reinterpret_cast<const char*>(&id), sizeof(id));
+                escreverString(arquivo, usuario.getSalt());
 
-        // 2. Escreve o username (tamanho variável)
-        escreverString(arquivo, usuario.getUsername());
+                time_t ultimoLogin = usuario.getUltimoLoginTimestamp();
+                arquivo.write(reinterpret_cast<const char*>(&ultimoLogin), sizeof(ultimoLogin));
 
-        // 3. Escreve o passwordHash (tamanho variável)
-        // Por segurança, você NUNCA deve ter um getPasswordHash().
-        // Esta é uma simplificação para o exemplo de serialização.
-        // Em um sistema real, o hash seria passado de outra forma ou a classe teria
-        // um método específico para serialização. Vamos assumir que você precise de um
-        // método privado ou "amigo" para acessar o hash para salvar.
-        // Por enquanto, vamos simular que temos o hash.
-        // ADICIONE TEMPORARIAMENTE ESTE MÉTODO À SUA CLASSE USUARIO PARA ESTE EXEMPLO FUNCIONAR:
-        // std::string getPasswordHash() const { return passwordHash; }
-        // escreverString(arquivo, usuario.getPasswordHash());
+                arquivo.close();
+            }
 
-        // 4. Escreve o salt (tamanho variável)
-        escreverString(arquivo, usuario.getSalt());
+            std::vector<Model::Usuario> carregarUsuarios() {
+                std::vector<Model::Usuario> usuarios;
+                std::ifstream arquivo(nomeArquivo, std::ios::binary);
 
-        // 5. Escreve o timestamp (tamanho fixo)
-        time_t ultimoLogin = usuario.getUltimoLoginTimestamp();
-        arquivo.write(reinterpret_cast<const char*>(&ultimoLogin), sizeof(ultimoLogin));
+                if (!arquivo.is_open()) {
+                    std::cout << "Arquivo de usuarios nao encontrado. Iniciando com base de dados vazia." << std::endl;
+                    return usuarios; // Retorna um vetor vazio, o que é normal na primeira execução
+                }
 
-        // O status 'online' não costuma ser salvo, pois é um estado transitório.
-        // Ele sempre será 'false' quando o servidor for reiniciado.
+                while (arquivo.peek() != EOF) {
+                    uint32_t id;
+                    arquivo.read(reinterpret_cast<char*>(&id), sizeof(id));
 
-        arquivo.close();
-    }
+                    if (arquivo.eof()) break;
 
-    // Método para carregar TODOS os usuários do arquivo para a memória
-    std::vector<Model::Usuario> carregarUsuarios() {
-        std::vector<Model::Usuario> usuarios;
-        // Abre o arquivo para leitura em modo binário
-        std::ifstream arquivo(nomeArquivo, std::ios::binary);
-
-        if (!arquivo.is_open()) {
-            std::cout << "Arquivo de usuarios nao encontrado. Iniciando com base de dados vazia." << std::endl;
-            return usuarios; // Retorna um vetor vazio, o que é normal na primeira execução
-        }
-
-        // Loop para ler o arquivo até o final
-        // A condição de parada é verificar se a leitura do primeiro campo (ID) falhou
-        // ou se chegamos ao fim do arquivo (eof).
-        while (arquivo.peek() != EOF) {
-
-            // --- DESSERIALIZAÇÃO DO OBJETO USUARIO ---
-
-            // 1. Lê o ID
-            uint32_t id;
-            arquivo.read(reinterpret_cast<char*>(&id), sizeof(id));
-
-            // Se após ler o ID chegamos ao fim do arquivo, paramos
-            if (arquivo.eof()) break;
-
-            // 2. Lê o username
-            std::string username = lerString(arquivo);
-
-            // 3. Lê o passwordHash
-            // std::string passwordHash = lerString(arquivo);
-
-            // 4. Lê o salt
-            std::string salt = lerString(arquivo);
-
-            // 5. Lê o timestamp
-            time_t ultimoLogin;
-            arquivo.read(reinterpret_cast<char*>(&ultimoLogin), sizeof(ultimoLogin));
+                    std::string username = lerString(arquivo);
+                    std::string salt = lerString(arquivo);
+                    time_t ultimoLogin;
+                    arquivo.read(reinterpret_cast<char*>(&ultimoLogin), sizeof(ultimoLogin));
 
 
-            // Recria o objeto Usuario com os dados lidos
-            // ATENÇÃO: para este exemplo funcionar, adicione um novo construtor à sua classe Usuario
-            // ou modifique o existente para lidar com o hash e o salt.
-            // Para simplificar, vou assumir que você tem um construtor que aceita todos os campos.
-            // Model::Usuario usuarioCarregado(id, username, passwordHash, salt);
+                    // Recria o objeto Usuario com os dados lidos
+                    // ATENÇÃO: para este exemplo funcionar, adicione um novo construtor à sua classe Usuario
+                    // ou modifique o existente para lidar com o hash e o salt.
+                    // Para simplificar, vou assumir que você tem um construtor que aceita todos os campos.
+                    // Model::Usuario usuarioCarregado(id, username, passwordHash, salt);
 
-            // Vamos usar o construtor que você já tem. Adicionei "dummy_hash" como placeholder.
-            std::string dummy_hash = "hash_lido_do_arquivo"; // Substitua pela leitura real
-            Model::Usuario usuarioCarregado(id, username, dummy_hash, salt);
+                    // Vamos usar o construtor que você já tem. Adicionei "dummy_hash" como placeholder.
+                    std::string dummy_hash = "hash_lido_do_arquivo"; // Substitua pela leitura real
+                    Model::Usuario usuarioCarregado(id, username, dummy_hash, salt);
 
-            // Atualiza os outros campos que não estão no construtor
-            usuarioCarregado.setUltimoLoginTimestamp(ultimoLogin);
-            // O status 'online' é sempre false ao carregar.
+                    // Atualiza os outros campos que não estão no construtor
+                    usuarioCarregado.setUltimoLoginTimestamp(ultimoLogin);
+                    usuarios.push_back(usuarioCarregado);
+                }
 
-            usuarios.push_back(usuarioCarregado);
-        }
-
-        arquivo.close();
-        return usuarios;
-    }
+                arquivo.close();
+                return usuarios;
+            }
 };
 
     }
@@ -485,10 +428,7 @@ public:
 
 
 int main() {
-    // Cria uma instância do servidor
     Servidor::Controller::ChatServidor meuServidor;
-
-    // Inicia o servidor na porta definida
     meuServidor.iniciar(PORTA_SERVIDOR);
 
     // A execução do servidor ocorre dentro do método iniciar() e seu loop de accept.
