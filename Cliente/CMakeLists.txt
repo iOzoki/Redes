@@ -3,4 +3,4 @@ project(Cliente)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(Cliente main.cpp)
+add_executable(Cliente client_win.cpp)
