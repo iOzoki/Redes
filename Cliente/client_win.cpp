@@ -1,441 +1,214 @@
+// client_win.cpp
+// Ponto de entrada principal para a aplicação cliente com GUI usando Dear ImGui e DirectX11
+
+// Inclui os cabeçalhos do Windows e DirectX
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <iostream>
-#include <string>
-#include <thread>
-#include <vector>
-#include <mutex>
-#include <atomic>
-#include <map>
-#include <sstream>
-#include <iomanip>
-#include <conio.h>
-#include <algorithm>
+#include <windows.h>
+#include <d3d11.h>
+#include <tchar.h>
 
+// Inclui os cabeçalhos da Dear ImGui (que vamos criar)
+#include "imgui.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx11.h"
+
+// Inclui a classe principal da nossa aplicação de Chat (que vamos criar)
+#include "ChatClient.h"
+
+// Linka com as bibliotecas necessárias
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
-#define SERVER_IP "127.0.0.1"
-#define SERVER_PORT 12345
-#define BUFFER_SIZE 4096
+// --- Variáveis Globais para o DirectX ---
+static ID3D11Device* g_pd3dDevice = NULL;
+static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
+static IDXGISwapChain* g_pSwapChain = NULL;
+static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 
-namespace Cliente {
+// --- Protótipos das Funções ---
+bool CreateDeviceD3D(HWND hWnd);
+void CleanupDeviceD3D();
+void CreateRenderTarget();
+void CleanupRenderTarget();
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-// =================================================================================
-// --- NAMESPACE MODEL ---
-// =================================================================================
-namespace Model {
 
-    struct Contato {
-        std::string username;
-        bool online = false;
-    };
+// --- Função Principal (main) ---
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int iCmdShow)
+{
+    // Criar a janela da aplicação
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("ImGui Chat Client"), NULL };
+    ::RegisterClassEx(&wc);
+    HWND hwnd = ::CreateWindow(wc.lpszClassName, _T("Cliente de Chat TCP"), WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
 
-    struct Mensagem {
-        std::string remetente;
-        std::string conteudo;
-        time_t timestamp;
-    };
+    // Inicializar o dispositivo Direct3D
+    if (!CreateDeviceD3D(hwnd))
+    {
+        CleanupDeviceD3D();
+        ::UnregisterClass(wc.lpszClassName, wc.hInstance);
+        return 1;
+    }
 
-    class ClienteRede {
-    private:
-        SOCKET sock = INVALID_SOCKET;
-        std::thread receiverThread;
-        std::atomic<bool> conectado;
-        std::vector<std::string> msgQueue;
-        std::mutex queueMutex;
+    // Mostrar a janela
+    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
+    ::UpdateWindow(hwnd);
 
-        void receberMensagens() {
-            char buffer[BUFFER_SIZE];
-            std::string bufferRecepcao;
-            while (conectado) {
-                int bytesRecebidos = recv(sock, buffer, BUFFER_SIZE, 0);
-                if (bytesRecebidos > 0) {
-                    bufferRecepcao.append(buffer, bytesRecebidos);
-                    size_t pos;
-                    while ((pos = bufferRecepcao.find('\n')) != std::string::npos) {
-                        std::string mensagemCompleta = bufferRecepcao.substr(0, pos);
-                        bufferRecepcao.erase(0, pos + 1);
-                        std::lock_guard<std::mutex> lock(queueMutex);
-                        msgQueue.push_back(mensagemCompleta);
-                    }
-                } else {
-                    std::cout << "\n[REDE] O servidor encerrou a conexao." << std::endl;
-                    conectado = false;
-                    break;
-                }
-            }
+    // Configurar o contexto da Dear ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+
+    // Configurar o estilo da Dear ImGui
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    // Configurar os backends da ImGui para Win32 e DirectX11
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+
+    // Cor de fundo da janela
+    ImVec4 clear_color = ImVec4(0.06f, 0.06f, 0.09f, 1.00f);
+
+    // Instancia o nosso Controller do Chat
+    auto chat_app = std::make_unique<Cliente::Controller::ChatController>();
+
+    // Loop principal da aplicação
+    bool done = false;
+    while (!done)
+    {
+        MSG msg;
+        while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
+        {
+            ::TranslateMessage(&msg);
+            ::DispatchMessage(&msg);
+            if (msg.message == WM_QUIT)
+                done = true;
+        }
+        if (done)
+            break;
+
+        // Inicia um novo frame da Dear ImGui
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+
+        // Chamamos o método do nosso Controller para executar a lógica e desenhar a GUI.
+        chat_app->ExecutarFrame();
+
+        // Renderiza o frame da ImGui
+        ImGui::Render();
+        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, (float*)&clear_color);
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
         }
 
-    public:
-        ClienteRede() : conectado(false) {}
-        ~ClienteRede() { desconectar(); }
+        g_pSwapChain->Present(1, 0);
+    }
 
-        bool conectar() {
-            WSADATA wsaData;
-            if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) return false;
+    // Limpeza ao sair
+    chat_app.reset();
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
 
-            sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (sock == INVALID_SOCKET) return false;
+    CleanupDeviceD3D();
+    ::DestroyWindow(hwnd);
+    ::UnregisterClass(wc.lpszClassName, wc.hInstance);
 
-            sockaddr_in serverAddr{};
-            serverAddr.sin_family = AF_INET;
-            serverAddr.sin_port = htons(SERVER_PORT);
-            inet_pton(AF_INET, SERVER_IP, &serverAddr.sin_addr);
-
-            if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-                closesocket(sock);
-                sock = INVALID_SOCKET;
-                return false;
-            }
-            conectado = true;
-            receiverThread = std::thread(&ClienteRede::receberMensagens, this);
-            return true;
-        }
-
-        void desconectar() {
-            if (conectado.exchange(false)) {
-                if (sock != INVALID_SOCKET) {
-                    closesocket(sock);
-                    sock = INVALID_SOCKET;
-                }
-                if (receiverThread.joinable()) {
-                    receiverThread.join();
-                }
-                WSACleanup();
-            }
-        }
-
-        void enviarMensagem(const std::string& msg) {
-            if (conectado) {
-                send(sock, msg.c_str(), (int)msg.length(), 0);
-            }
-        }
-
-        bool temMensagens() {
-            std::lock_guard<std::mutex> lock(queueMutex);
-            return !msgQueue.empty();
-        }
-
-        std::string getProximaMensagem() {
-            std::lock_guard<std::mutex> lock(queueMutex);
-            if (msgQueue.empty()) return "";
-            std::string msg = msgQueue.front();
-            msgQueue.erase(msgQueue.begin());
-            return msg;
-        }
-
-        bool estaConectado() const {
-            return conectado;
-        }
-    };
-
-} // fim do namespace Model
-
-// =================================================================================
-// --- NAMESPACE VIEW ---
-// =================================================================================
-namespace View {
-
-    class TerminalView {
-    public:
-        void limparTela() {
-            system("cls");
-        }
-
-        void desenharCabecalho(const std::string& titulo) {
-            std::cout << "================================================================" << std::endl;
-            std::cout << " Cliente de Chat - " << titulo << std::endl;
-            std::cout << "================================================================" << std::endl << std::endl;
-        }
-
-        void desenharTelaInicial() {
-            limparTela();
-            desenharCabecalho("Bem-vindo!");
-            std::cout << "1. Login" << std::endl;
-            std::cout << "2. Registrar" << std::endl;
-            std::cout << "3. Sair" << std::endl;
-            std::cout << "\nEscolha uma opcao: " << std::flush;
-        }
-
-        void aguardarServidor() {
-            std::cout << "\nAguardando resposta do servidor..." << std::endl;
-        }
-
-        void exibirMensagemErro(const std::string& erro) {
-            std::cout << "\n[ERRO] " << erro << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-        }
-
-        void exibirMensagemSucesso(const std::string& sucesso) {
-            std::cout << "\n[SUCESSO] " << sucesso << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-        }
-
-        void desenharTelaChat(
-            const std::string& usernameLogado,
-            const std::string& chatAbertoCom,
-            const std::map<std::string, Model::Contato>& contatos,
-            const std::map<std::string, std::vector<Model::Mensagem>>& conversas,
-            const std::string& inputAtual
-        ) {
-            limparTela();
-            std::string titulo = "Chat - Logado como: " + usernameLogado;
-            if (!chatAbertoCom.empty()) {
-                titulo += " | Conversando com: " + chatAbertoCom;
-            }
-            desenharCabecalho(titulo);
-
-            std::cout << "--- Contatos ---" << std::endl;
-            int i = 1;
-            std::vector<std::string> contatosOrdenados;
-            for (auto const& [nome, contato] : contatos) {
-                contatosOrdenados.push_back(nome);
-            }
-            std::sort(contatosOrdenados.begin(), contatosOrdenados.end());
-
-            for (const auto& nome : contatosOrdenados) {
-                auto contato = contatos.at(nome);
-                std::cout << i++ << ". " << contato.username << " (" << (contato.online ? "Online" : "Offline") << ")" << std::endl;
-            }
-            std::cout << std::endl;
-            std::cout << "Digite 'sair' para voltar a lista de contatos." << std::endl;
-            std::cout << "Digite 'logout' para deslogar." << std::endl;
-
-            std::cout << "\n--- Conversa ---" << std::endl;
-            if (chatAbertoCom.empty()) {
-                std::cout << "Nenhuma conversa selecionada." << std::endl;
-                std::cout << "Digite 'chat [numero_do_contato]' para iniciar uma conversa." << std::endl;
-            } else if (conversas.count(chatAbertoCom)) {
-                for (const auto& msg : conversas.at(chatAbertoCom)) {
-                    struct tm timeinfo;
-                    localtime_s(&timeinfo, &msg.timestamp);
-                    std::cout << "[" << std::put_time(&timeinfo, "%H:%M") << "] "
-                              << msg.remetente << ": " << msg.conteudo << std::endl;
-                }
-            }
-
-            std::cout << "\n----------------------------------------------------------------" << std::endl;
-            std::cout << "> " << inputAtual << std::flush;
-        }
-    };
-
-} // fim do namespace View
-
-// =================================================================================
-// --- NAMESPACE CONTROLLER ---
-// =================================================================================
-namespace Controller {
-
-    class ChatController {
-    private:
-        enum class Estado { TELA_INICIAL, TELA_LOGIN, TELA_REGISTRO, TELA_CHAT, SAINDO };
-
-        Estado estadoAtual = Estado::TELA_INICIAL;
-
-        Model::ClienteRede rede;
-        View::TerminalView view;
-
-        std::string usernameLogado;
-        std::string usernameTemporario;
-        std::map<std::string, Model::Contato> contatos;
-        std::map<std::string, std::vector<Model::Mensagem>> conversas;
-        std::string chatAbertoCom = "";
-        std::string inputAtual = "";
-        bool precisaRedesenhar = true; // *** NOVA VARIÁVEL DE CONTROLE ***
-
-        std::vector<std::string> parseString(const std::string& str, char delim) {
-            std::vector<std::string> tokens;
-            if (str.empty()) return tokens;
-            std::stringstream ss(str);
-            std::string token;
-            while (std::getline(ss, token, delim)) {
-                tokens.push_back(token);
-            }
-            return tokens;
-        }
-
-        bool processarEntradaDeRede() {
-            bool houveMudanca = false;
-            while (rede.temMensagens()) {
-                houveMudanca = true; // Uma mensagem chegou, a tela precisa ser redesenhada
-                std::string msg = rede.getProximaMensagem();
-                auto partes = parseString(msg, '|');
-                if (partes.empty()) continue;
-
-                const std::string& comando = partes[0];
-
-                if (comando == "LOGIN_OK") {
-                    mudarEstado(Estado::TELA_CHAT);
-                    usernameLogado = usernameTemporario;
-                    usernameTemporario.clear();
-                    contatos.clear();
-                    if (partes.size() > 1 && !partes[1].empty()) {
-                        auto contatosStr = parseString(partes[1], ';');
-                        for (const auto& cStr : contatosStr) {
-                            auto detalhes = parseString(cStr, ',');
-                            if (detalhes.size() == 2) {
-                                contatos[detalhes[0]] = { detalhes[0], (detalhes[1] == "1") };
-                            }
-                        }
-                    }
-                } else if (comando == "LOGIN_FAIL") {
-                    usernameTemporario.clear();
-                    view.exibirMensagemErro(partes.size() > 1 ? partes[1] : "Falha no login.");
-                    mudarEstado(Estado::TELA_INICIAL);
-                } else if (comando == "REG_OK") {
-                    view.exibirMensagemSucesso("Usuario registrado! Por favor, faca o login.");
-                    mudarEstado(Estado::TELA_INICIAL);
-                } else if (comando == "REG_FAIL") {
-                    view.exibirMensagemErro(partes.size() > 1 ? partes[1] : "Falha no registro.");
-                    mudarEstado(Estado::TELA_INICIAL);
-                } else if (comando == "RECV_MSG") {
-                    if (partes.size() < 4) continue;
-                    std::string remetente = partes[1];
-                    std::string conteudo = partes[2];
-                    time_t timestamp = 0;
-                    try { timestamp = std::stoll(partes[3]); } catch (...) {}
-                    conversas[remetente].push_back({ remetente, conteudo, timestamp });
-                } else if (comando == "USER_STATUS") {
-                    if (partes.size() < 3) continue;
-                    if(contatos.count(partes[1])) {
-                        contatos[partes[1]].online = (partes[2] == "1");
-                    }
-                }
-            }
-            return houveMudanca;
-        }
-
-        bool processarEntradaDeUsuario() {
-            if (_kbhit()) {
-                char c = _getch();
-                if (c == '\r') {
-                    if (!inputAtual.empty()) {
-                        if (chatAbertoCom.empty()) {
-                            auto partes = parseString(inputAtual, ' ');
-                            if (partes.size() == 2 && partes[0] == "chat") {
-                                try {
-                                    int index = std::stoi(partes[1]) - 1;
-                                    std::vector<std::string> contatosOrdenados;
-                                    for(auto const& [nome, val] : contatos) contatosOrdenados.push_back(nome);
-                                    std::sort(contatosOrdenados.begin(), contatosOrdenados.end());
-                                    if (index >= 0 && index < contatosOrdenados.size()) {
-                                        chatAbertoCom = contatosOrdenados[index];
-                                    }
-                                } catch (...) {}
-                            } else if (inputAtual == "logout") {
-                                 rede.enviarMensagem("LOGOUT\n");
-                                 mudarEstado(Estado::TELA_INICIAL);
-                                 usernameLogado.clear();
-                                 contatos.clear();
-                                 conversas.clear();
-                            }
-                        } else {
-                            if(inputAtual == "sair") {
-                                chatAbertoCom.clear();
-                            } else {
-                                rede.enviarMensagem("MSG|" + chatAbertoCom + "|" + inputAtual + "\n");
-                                conversas[chatAbertoCom].push_back({ usernameLogado, inputAtual, time(0) });
-                            }
-                        }
-                        inputAtual.clear();
-                    }
-                } else if (c == '\b') {
-                    if (!inputAtual.empty()) inputAtual.pop_back();
-                } else {
-                    inputAtual += c;
-                }
-                return true; // Houve mudança no input do usuário
-            }
-            return false;
-        }
-
-        void executarTelaLoginOuRegistro(bool isRegistro) {
-            view.limparTela();
-            view.desenharCabecalho(isRegistro ? "Registro de Novo Usuario" : "Login");
-
-            std::string tempUser, tempPass;
-            std::cout << "Digite o nome de usuario: ";
-            std::getline(std::cin, tempUser);
-            std::cout << "Digite a senha: ";
-            std::getline(std::cin, tempPass);
-
-            if (tempUser.empty() || tempPass.empty()) {
-                view.exibirMensagemErro("Usuario e senha nao podem estar vazios.");
-                mudarEstado(Estado::TELA_INICIAL);
-                return;
-            }
-
-            if (isRegistro) {
-                rede.enviarMensagem("REG|" + tempUser + "|" + tempPass + "\n");
-            } else {
-                usernameTemporario = tempUser;
-                rede.enviarMensagem("LOGIN|" + tempUser + "|" + tempPass + "\n");
-            }
-            view.aguardarServidor();
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-
-        // *** NOVA FUNÇÃO PARA MUDAR DE ESTADO E FORÇAR REDESENHO ***
-        void mudarEstado(Estado novoEstado) {
-            estadoAtual = novoEstado;
-            precisaRedesenhar = true;
-        }
-
-    public:
-        void executar() {
-            if (!rede.conectar()) {
-                std::cout << "Nao foi possivel iniciar o cliente. Pressione Enter para sair." << std::endl;
-                std::cin.get();
-                return;
-            }
-
-            while (estadoAtual != Estado::SAINDO && rede.estaConectado()) {
-                // Processa eventos e verifica se algo mudou
-                if (processarEntradaDeRede()) precisaRedesenhar = true;
-                if (processarEntradaDeUsuario()) precisaRedesenhar = true;
-
-                // Só redesenha a tela se algo tiver mudado
-                if (precisaRedesenhar) {
-                    switch (estadoAtual) {
-                    case Estado::TELA_INICIAL:
-                        view.desenharTelaInicial();
-                        {
-                            char escolha = '0';
-                            std::cin >> escolha;
-                            std::cin.ignore(10000, '\n');
-                            if (escolha == '1') mudarEstado(Estado::TELA_LOGIN);
-                            else if (escolha == '2') mudarEstado(Estado::TELA_REGISTRO);
-                            else if (escolha == '3') mudarEstado(Estado::SAINDO);
-                        }
-                        break;
-                    case Estado::TELA_LOGIN:
-                        executarTelaLoginOuRegistro(false);
-                        break;
-                    case Estado::TELA_REGISTRO:
-                        executarTelaLoginOuRegistro(true);
-                        break;
-                    case Estado::TELA_CHAT:
-                        view.desenharTelaChat(usernameLogado, chatAbertoCom, contatos, conversas, inputAtual);
-                        break;
-                    case Estado::SAINDO:
-                        break;
-                    }
-                    precisaRedesenhar = false; // Resetamos a flag após desenhar
-                }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            }
-            rede.desconectar();
-            std::cout << "\nPrograma encerrado." << std::endl;
-        }
-    };
-
-} // fim do namespace Controller
-} // fim do namespace Cliente
-
-int main() {
-    SetConsoleOutputCP(CP_UTF8);
-    Cliente::Controller::ChatController app;
-    app.executar();
     return 0;
+}
+
+// --- Funções de Ajuda para o DirectX ---
+bool CreateDeviceD3D(HWND hWnd)
+{
+    DXGI_SWAP_CHAIN_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+    sd.BufferCount = 2;
+    sd.BufferDesc.Width = 0;
+    sd.BufferDesc.Height = 0;
+    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.BufferDesc.RefreshRate.Numerator = 60;
+    sd.BufferDesc.RefreshRate.Denominator = 1;
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.OutputWindow = hWnd;
+    sd.SampleDesc.Count = 1;
+    sd.SampleDesc.Quality = 0;
+    sd.Windowed = TRUE;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+
+    UINT createDeviceFlags = 0;
+    D3D_FEATURE_LEVEL featureLevel;
+    const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+    if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
+        return false;
+
+    CreateRenderTarget();
+    return true;
+}
+
+void CleanupDeviceD3D()
+{
+    CleanupRenderTarget();
+    if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = NULL; }
+    if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = NULL; }
+    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+}
+
+void CreateRenderTarget()
+{
+    ID3D11Texture2D* pBackBuffer;
+    g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+    if (pBackBuffer != nullptr) {
+        g_pd3dDevice->CreateRenderTargetView(pBackBuffer, NULL, &g_mainRenderTargetView);
+        pBackBuffer->Release();
+    }
+}
+
+void CleanupRenderTarget()
+{
+    if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; }
+}
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
+        return true;
+
+    switch (msg)
+    {
+    case WM_SIZE:
+        if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+        {
+            CleanupRenderTarget();
+            g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+            CreateRenderTarget();
+        }
+        return 0;
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xfff0) == SC_KEYMENU)
+            return 0;
+        break;
+    case WM_DESTROY:
+        ::PostQuitMessage(0);
+        return 0;
+    }
+    return ::DefWindowProc(hWnd, msg, wParam, lParam);
 }
