@@ -4,3 +4,6 @@ project(Cliente)
 set(CMAKE_CXX_STANDARD 20)
 
 add_executable(Cliente client_win.cpp)
+target_link_libraries(cliente ws2_32)
+set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
+set(CMAKE_SHARED_LINKER_FLAGS "-static-libgcc -static-libstdc++")
