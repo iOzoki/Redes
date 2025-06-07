@@ -22,7 +22,6 @@ namespace Cliente {
 
 // =================================================================================
 // --- NAMESPACE MODEL ---
-// Responsável pelos dados e a lógica de negócios do cliente.
 // =================================================================================
 namespace Model {
 
@@ -134,7 +133,6 @@ namespace Model {
 
 // =================================================================================
 // --- NAMESPACE VIEW ---
-// Responsável apenas por desenhar a interface no console.
 // =================================================================================
 namespace View {
 
@@ -187,7 +185,6 @@ namespace View {
             }
             desenharCabecalho(titulo);
 
-            // Lado Esquerdo: Contatos
             std::cout << "--- Contatos ---" << std::endl;
             int i = 1;
             std::vector<std::string> contatosOrdenados;
@@ -204,8 +201,6 @@ namespace View {
             std::cout << "Digite 'sair' para voltar a lista de contatos." << std::endl;
             std::cout << "Digite 'logout' para deslogar." << std::endl;
 
-
-            // Lado Direito: Conversa
             std::cout << "\n--- Conversa ---" << std::endl;
             if (chatAbertoCom.empty()) {
                 std::cout << "Nenhuma conversa selecionada." << std::endl;
@@ -219,7 +214,6 @@ namespace View {
                 }
             }
 
-            // Rodapé: Input do usuário
             std::cout << "\n----------------------------------------------------------------" << std::endl;
             std::cout << "> " << inputAtual << std::flush;
         }
@@ -229,7 +223,6 @@ namespace View {
 
 // =================================================================================
 // --- NAMESPACE CONTROLLER ---
-// Responsável por orquestrar a aplicação, unindo o Model e a View.
 // =================================================================================
 namespace Controller {
 
@@ -239,19 +232,17 @@ namespace Controller {
 
         Estado estadoAtual = Estado::TELA_INICIAL;
 
-        // Controller possui instâncias do Model e da View
         Model::ClienteRede rede;
         View::TerminalView view;
 
-        // Dados do Model gerenciados pelo Controller
         std::string usernameLogado;
         std::string usernameTemporario;
         std::map<std::string, Model::Contato> contatos;
         std::map<std::string, std::vector<Model::Mensagem>> conversas;
         std::string chatAbertoCom = "";
         std::string inputAtual = "";
+        bool precisaRedesenhar = true; // *** NOVA VARIÁVEL DE CONTROLE ***
 
-        // --- Funções de Processamento de Lógica ---
         std::vector<std::string> parseString(const std::string& str, char delim) {
             std::vector<std::string> tokens;
             if (str.empty()) return tokens;
@@ -263,8 +254,10 @@ namespace Controller {
             return tokens;
         }
 
-        void processarEntradaDeRede() {
+        bool processarEntradaDeRede() {
+            bool houveMudanca = false;
             while (rede.temMensagens()) {
+                houveMudanca = true; // Uma mensagem chegou, a tela precisa ser redesenhada
                 std::string msg = rede.getProximaMensagem();
                 auto partes = parseString(msg, '|');
                 if (partes.empty()) continue;
@@ -272,10 +265,9 @@ namespace Controller {
                 const std::string& comando = partes[0];
 
                 if (comando == "LOGIN_OK") {
-                    estadoAtual = Estado::TELA_CHAT;
+                    mudarEstado(Estado::TELA_CHAT);
                     usernameLogado = usernameTemporario;
                     usernameTemporario.clear();
-
                     contatos.clear();
                     if (partes.size() > 1 && !partes[1].empty()) {
                         auto contatosStr = parseString(partes[1], ';');
@@ -289,13 +281,13 @@ namespace Controller {
                 } else if (comando == "LOGIN_FAIL") {
                     usernameTemporario.clear();
                     view.exibirMensagemErro(partes.size() > 1 ? partes[1] : "Falha no login.");
-                    estadoAtual = Estado::TELA_INICIAL;
+                    mudarEstado(Estado::TELA_INICIAL);
                 } else if (comando == "REG_OK") {
                     view.exibirMensagemSucesso("Usuario registrado! Por favor, faca o login.");
-                    estadoAtual = Estado::TELA_INICIAL;
+                    mudarEstado(Estado::TELA_INICIAL);
                 } else if (comando == "REG_FAIL") {
                     view.exibirMensagemErro(partes.size() > 1 ? partes[1] : "Falha no registro.");
-                    estadoAtual = Estado::TELA_INICIAL;
+                    mudarEstado(Estado::TELA_INICIAL);
                 } else if (comando == "RECV_MSG") {
                     if (partes.size() < 4) continue;
                     std::string remetente = partes[1];
@@ -310,14 +302,15 @@ namespace Controller {
                     }
                 }
             }
+            return houveMudanca;
         }
 
-        void processarEntradaDeUsuario() {
+        bool processarEntradaDeUsuario() {
             if (_kbhit()) {
                 char c = _getch();
-                if (c == '\r') { // Enter
+                if (c == '\r') {
                     if (!inputAtual.empty()) {
-                        if (chatAbertoCom.empty()) { // Comandos globais
+                        if (chatAbertoCom.empty()) {
                             auto partes = parseString(inputAtual, ' ');
                             if (partes.size() == 2 && partes[0] == "chat") {
                                 try {
@@ -330,13 +323,13 @@ namespace Controller {
                                     }
                                 } catch (...) {}
                             } else if (inputAtual == "logout") {
-                                rede.enviarMensagem("LOGOUT\n");
-                                estadoAtual = Estado::TELA_INICIAL;
-                                usernameLogado.clear();
-                                contatos.clear();
-                                conversas.clear();
+                                 rede.enviarMensagem("LOGOUT\n");
+                                 mudarEstado(Estado::TELA_INICIAL);
+                                 usernameLogado.clear();
+                                 contatos.clear();
+                                 conversas.clear();
                             }
-                        } else { // Enviando mensagem ou comando de chat
+                        } else {
                             if(inputAtual == "sair") {
                                 chatAbertoCom.clear();
                             } else {
@@ -346,12 +339,14 @@ namespace Controller {
                         }
                         inputAtual.clear();
                     }
-                } else if (c == '\b') { // Backspace
+                } else if (c == '\b') {
                     if (!inputAtual.empty()) inputAtual.pop_back();
                 } else {
                     inputAtual += c;
                 }
+                return true; // Houve mudança no input do usuário
             }
+            return false;
         }
 
         void executarTelaLoginOuRegistro(bool isRegistro) {
@@ -366,7 +361,7 @@ namespace Controller {
 
             if (tempUser.empty() || tempPass.empty()) {
                 view.exibirMensagemErro("Usuario e senha nao podem estar vazios.");
-                estadoAtual = Estado::TELA_INICIAL;
+                mudarEstado(Estado::TELA_INICIAL);
                 return;
             }
 
@@ -380,6 +375,12 @@ namespace Controller {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
+        // *** NOVA FUNÇÃO PARA MUDAR DE ESTADO E FORÇAR REDESENHO ***
+        void mudarEstado(Estado novoEstado) {
+            estadoAtual = novoEstado;
+            precisaRedesenhar = true;
+        }
+
     public:
         void executar() {
             if (!rede.conectar()) {
@@ -389,33 +390,39 @@ namespace Controller {
             }
 
             while (estadoAtual != Estado::SAINDO && rede.estaConectado()) {
-                processarEntradaDeRede();
+                // Processa eventos e verifica se algo mudou
+                if (processarEntradaDeRede()) precisaRedesenhar = true;
+                if (processarEntradaDeUsuario()) precisaRedesenhar = true;
 
-                switch (estadoAtual) {
-                case Estado::TELA_INICIAL:
-                    view.desenharTelaInicial();
-                    {
-                        char escolha = '0';
-                        std::cin >> escolha;
-                        std::cin.ignore(10000, '\n');
-                        if (escolha == '1') estadoAtual = Estado::TELA_LOGIN;
-                        else if (escolha == '2') estadoAtual = Estado::TELA_REGISTRO;
-                        else if (escolha == '3') estadoAtual = Estado::SAINDO;
+                // Só redesenha a tela se algo tiver mudado
+                if (precisaRedesenhar) {
+                    switch (estadoAtual) {
+                    case Estado::TELA_INICIAL:
+                        view.desenharTelaInicial();
+                        {
+                            char escolha = '0';
+                            std::cin >> escolha;
+                            std::cin.ignore(10000, '\n');
+                            if (escolha == '1') mudarEstado(Estado::TELA_LOGIN);
+                            else if (escolha == '2') mudarEstado(Estado::TELA_REGISTRO);
+                            else if (escolha == '3') mudarEstado(Estado::SAINDO);
+                        }
+                        break;
+                    case Estado::TELA_LOGIN:
+                        executarTelaLoginOuRegistro(false);
+                        break;
+                    case Estado::TELA_REGISTRO:
+                        executarTelaLoginOuRegistro(true);
+                        break;
+                    case Estado::TELA_CHAT:
+                        view.desenharTelaChat(usernameLogado, chatAbertoCom, contatos, conversas, inputAtual);
+                        break;
+                    case Estado::SAINDO:
+                        break;
                     }
-                    break;
-                case Estado::TELA_LOGIN:
-                    executarTelaLoginOuRegistro(false);
-                    break;
-                case Estado::TELA_REGISTRO:
-                    executarTelaLoginOuRegistro(true);
-                    break;
-                case Estado::TELA_CHAT:
-                    processarEntradaDeUsuario();
-                    view.desenharTelaChat(usernameLogado, chatAbertoCom, contatos, conversas, inputAtual);
-                    break;
-                case Estado::SAINDO:
-                    break;
+                    precisaRedesenhar = false; // Resetamos a flag após desenhar
                 }
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
             rede.desconectar();
