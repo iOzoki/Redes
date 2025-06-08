@@ -547,7 +547,7 @@ namespace Controller {
         if (!vincularSocketOuvinte()) { fecharSocketOuvinte(); limparRecursosWinsock(); return; }
         if (!iniciarEscuta()) { fecharSocketOuvinte(); limparRecursosWinsock(); return; }
 
-        std::cout << "[INFO] Servidor de Chat funcional iniciado na porta " << porta << std::endl;
+        std::cout << "[INFO] Servidor de Chat iniciado na porta " << porta << std::endl;
         while (true) {
             SOCKET socketNovoCliente = accept(socketServidorOuvinte, nullptr, nullptr);
             if (socketNovoCliente == INVALID_SOCKET) {
@@ -563,7 +563,7 @@ namespace Controller {
                 if (tratador->isLogado()) {
                     this->removerSessao(tratador->getUsuarioId());
                 }
-                std::cout << "[INFO] Conexao encerrada. Limpando recursos para o socket: " << socketNovoCliente << std::endl;
+                std::cout << "[INFO] Conexao encerrada. socket: " << socketNovoCliente << std::endl;
                 delete tratador;
             }).detach();
         }
@@ -572,7 +572,7 @@ namespace Controller {
     void ChatServidor::encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo) {
         auto destinatarioUserObj = gerenciadorUsuarios.findUserByUsername(destinatarioUsername);
         if (!destinatarioUserObj) {
-            std::cout << "[AVISO] Tentativa de enviar msg para usuario inexistente: " << destinatarioUsername << std::endl;
+            std::cout << "[AVISO] Tentativa de enviar mensagem para usuario inexistente: " << destinatarioUsername << std::endl;
             return;
         }
         uint32_t destinatarioId = destinatarioUserObj->getId();
