@@ -222,6 +222,12 @@ namespace Model {
         Usuario(uint32_t id, const std::string& uname, const std::string& pHash, const std::string& s)
             : id(id), username(uname), passwordHash(pHash), salt(s), online(false), ultimoLoginTimestamp(0) {}
 
+        // Construtor de cópia explícito para lidar com o membro const 'id'
+        Usuario(const Usuario& other)
+            : id(other.id), username(other.username), passwordHash(other.passwordHash), salt(other.salt),
+              online(other.online), ultimoLoginTimestamp(other.ultimoLoginTimestamp) {}
+
+
         uint32_t getId() const { return id; }
         const std::string& getUsername() const { return username; }
         const std::string& getSalt() const { return salt; }
@@ -316,12 +322,20 @@ namespace Persistencia {
             proximoIdDisponivel = maxId + 1;
         }
 
-        std::shared_ptr<Model::Usuario> registrarNovoUsuario(const std::string& username, const std::string& senha) {
+        std::shared_ptr<Model::Usuario> findUserByUsername(const std::string& username) {
             std::lock_guard<std::mutex> lock(mutexUsuarios);
             for (const auto& u : usuariosEmMemoria) {
                 if (u->getUsername() == username) {
-                    return nullptr; // Usuário já existe
+                    return u;
                 }
+            }
+            return nullptr;
+        }
+
+        std::shared_ptr<Model::Usuario> registrarNovoUsuario(const std::string& username, const std::string& senha) {
+            std::lock_guard<std::mutex> lock(mutexUsuarios);
+            if (findUserByUsername(username) != nullptr) {
+                return nullptr; // Usuário já existe
             }
             uint32_t novoId = proximoIdDisponivel.fetch_add(1);
             std::string salt = CryptoUtils::gerarSalt();
@@ -379,6 +393,7 @@ namespace Controller {
         uint32_t getUsuarioId() const;
         bool isLogado() const;
         void processarComunicacaoCliente();
+        void enviarMensagemParaCliente(const std::string& msg);
     };
 
     class ChatServidor {
@@ -389,7 +404,6 @@ namespace Controller {
         std::map<uint32_t, TratadorCliente*> sessoesAtivas;
         std::mutex mutexSessoes;
 
-        // Métodos de inicialização de Sockets
         bool inicializarWinsock();
         bool criarSocketOuvinte();
         void configurarEnderecoServidor(int porta);
@@ -407,6 +421,8 @@ namespace Controller {
         void removerSessao(uint32_t userId);
         bool isUsuarioOnline(uint32_t userId);
         Persistencia::GerenciadorUsuarios* getGerenciadorUsuarios() { return &gerenciadorUsuarios; }
+        // *** DECLARAÇÃO DO MÉTODO DE ENCAMINHAMENTO ***
+        void encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo);
     };
 
     // --- Implementação dos Métodos do Controller ---
@@ -439,6 +455,12 @@ namespace Controller {
         return partes;
     }
 
+    void TratadorCliente::enviarMensagemParaCliente(const std::string& msg) {
+        if (socketCliente != INVALID_SOCKET) {
+            send(socketCliente, msg.c_str(), static_cast<int>(msg.length()), 0);
+        }
+    }
+
     void TratadorCliente::handleLogin(const std::vector<std::string>& params) {
         if (params.size() < 3) return;
 
@@ -456,11 +478,11 @@ namespace Controller {
             if (!listaContatosStr.empty()) listaContatosStr.pop_back();
 
             std::string resposta = "LOGIN_OK|" + listaContatosStr + "\n";
-            send(socketCliente, resposta.c_str(), (int)resposta.length(), 0);
+            enviarMensagemParaCliente(resposta);
             std::cout << "[INFO] Usuario '" << usuarioLogado->getUsername() << "' logado com sucesso." << std::endl;
         } else {
             std::string resposta = "LOGIN_FAIL|Usuario ou senha invalidos.\n";
-            send(socketCliente, resposta.c_str(), (int)resposta.length(), 0);
+            enviarMensagemParaCliente(resposta);
             std::cout << "[AVISO] Falha no login para o usuario '" << params[1] << "'." << std::endl;
         }
     }
@@ -470,19 +492,18 @@ namespace Controller {
 
         auto novoUsuarioPtr = gerenciadorUsuarios->registrarNovoUsuario(params[1], params[2]);
         if (novoUsuarioPtr) {
-            std::string resposta = "REG_OK\n";
-            send(socketCliente, resposta.c_str(), (int)resposta.length(), 0);
+            enviarMensagemParaCliente("REG_OK\n");
             std::cout << "[INFO] Usuario '" << params[1] << "' registrado com sucesso." << std::endl;
         } else {
-            std::string resposta = "REG_FAIL|Usuario ja existe.\n";
-            send(socketCliente, resposta.c_str(), (int)resposta.length(), 0);
+            enviarMensagemParaCliente("REG_FAIL|Usuario ja existe.\n");
         }
     }
 
+    // *** IMPLEMENTAÇÃO CORRIGIDA ***
     void TratadorCliente::handleEnvioMensagem(const std::vector<std::string>& params) {
         if (!isLogado() || params.size() < 3) return;
-        std::cout << "[MSG] Usuario '" << usuarioLogado->getUsername() << "' esta enviando msg para '" << params[1] << "'" << std::endl;
-        // Lógica de roteamento de mensagem vai aqui...
+        // Chama o método de encaminhamento do servidor.
+        instanciaServidor->encaminharMensagem(usuarioLogado->getUsername(), params[1], params[2]);
     }
 
     void TratadorCliente::processarComunicacaoCliente() {
@@ -513,12 +534,12 @@ namespace Controller {
         }
     }
 
-    // --- Implementação dos Métodos de ChatServidor ---
     ChatServidor::ChatServidor() : socketServidorOuvinte(INVALID_SOCKET) {}
     ChatServidor::~ChatServidor() {
         fecharSocketOuvinte();
         limparRecursosWinsock();
     }
+
     void ChatServidor::iniciar(int porta) {
         if (!inicializarWinsock()) return;
         if (!criarSocketOuvinte()) { limparRecursosWinsock(); return; }
@@ -547,10 +568,33 @@ namespace Controller {
             }).detach();
         }
     }
+
+    void ChatServidor::encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo) {
+        auto destinatarioUserObj = gerenciadorUsuarios.findUserByUsername(destinatarioUsername);
+        if (!destinatarioUserObj) {
+            std::cout << "[AVISO] Tentativa de enviar msg para usuario inexistente: " << destinatarioUsername << std::endl;
+            return;
+        }
+        uint32_t destinatarioId = destinatarioUserObj->getId();
+        std::lock_guard<std::mutex> lock(mutexSessoes);
+        auto it = sessoesAtivas.find(destinatarioId);
+        if (it != sessoesAtivas.end()) {
+            TratadorCliente* tratadorDestino = it->second;
+            time_t timestamp = time(0);
+            std::string msgParaEnviar = "RECV_MSG|" + remetente + "|" + conteudo + "|" + std::to_string(timestamp) + "\n";
+            tratadorDestino->enviarMensagemParaCliente(msgParaEnviar);
+            std::cout << "[MSG] Mensagem de '" << remetente << "' para '" << destinatarioUsername << "' encaminhada com sucesso." << std::endl;
+        } else {
+            std::cout << "[MSG] Usuario '" << destinatarioUsername << "' esta offline. Salvando mensagem..." << std::endl;
+            // TODO: Lógica de salvar msg offline
+        }
+    }
+
     void ChatServidor::adicionarSessao(uint32_t userId, TratadorCliente* tratador) {
         std::lock_guard<std::mutex> lock(mutexSessoes);
         sessoesAtivas[userId] = tratador;
     }
+
     void ChatServidor::removerSessao(uint32_t userId) {
         std::lock_guard<std::mutex> lock(mutexSessoes);
         if(sessoesAtivas.count(userId)) {
@@ -558,6 +602,7 @@ namespace Controller {
             std::cout << "[INFO] Sessao removida para o usuario ID: " << userId << std::endl;
         }
     }
+
     bool ChatServidor::isUsuarioOnline(uint32_t userId) {
         std::lock_guard<std::mutex> lock(mutexSessoes);
         return sessoesAtivas.count(userId) > 0;
@@ -572,6 +617,7 @@ namespace Controller {
         }
         return true;
     }
+
     bool ChatServidor::criarSocketOuvinte() {
         socketServidorOuvinte = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (socketServidorOuvinte == INVALID_SOCKET) {
@@ -580,11 +626,13 @@ namespace Controller {
         }
         return true;
     }
+
     void ChatServidor::configurarEnderecoServidor(int porta) {
         enderecoServidor.sin_family = AF_INET;
         enderecoServidor.sin_addr.s_addr = INADDR_ANY;
         enderecoServidor.sin_port = htons(porta);
     }
+
     bool ChatServidor::vincularSocketOuvinte() {
         if (bind(socketServidorOuvinte, (sockaddr*)&enderecoServidor, sizeof(enderecoServidor)) == SOCKET_ERROR) {
             std::cerr << "[ERRO] Bind falhou: " << WSAGetLastError() << std::endl;
@@ -592,6 +640,7 @@ namespace Controller {
         }
         return true;
     }
+
     bool ChatServidor::iniciarEscuta() {
         if (listen(socketServidorOuvinte, SOMAXCONN) == SOCKET_ERROR) {
             std::cerr << "[ERRO] Listen falhou: " << WSAGetLastError() << std::endl;
@@ -599,9 +648,11 @@ namespace Controller {
         }
         return true;
     }
+
     void ChatServidor::limparRecursosWinsock() {
         WSACleanup();
     }
+
     void ChatServidor::fecharSocketOuvinte() {
         if (socketServidorOuvinte != INVALID_SOCKET) {
             closesocket(socketServidorOuvinte);
