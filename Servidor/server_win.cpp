@@ -14,15 +14,15 @@
 #include <stdexcept>
 #include <chrono>
 #include <random>
+#include <filesystem>
 
 #pragma comment(lib, "Ws2_32.lib")
 
 #define PORTA_SERVIDOR 12345
 #define TAMANHO_BUFFER 4096
 
-// =================================================================================
-// --- NAMESPACE DE CRIPTOGRAFIA (SHA-256) ---
-// =================================================================================
+namespace fs = std::filesystem;
+
 namespace CryptoUtils {
 
     class SHA256 {
@@ -423,8 +423,12 @@ namespace Controller {
         Persistencia::GerenciadorUsuarios* getGerenciadorUsuarios() { return &gerenciadorUsuarios; }
         // *** DECLARAÇÃO DO MÉTODO DE ENCAMINHAMENTO ***
         void encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo);
+
         void salvarMensagemOffline(uint32_t destinatarioId, const std::string& remetente, const std::string& conteudo, time_t timestamp) {
-            std::ofstream arquivo("mensagens_offline/" + std::to_string(destinatarioId) + ".msg", std::ios::app);
+            fs::create_directories("mensagens_offline");
+
+            std::string caminho = "mensagens_offline/" + std::to_string(destinatarioId) + ".msg";
+            std::ofstream arquivo(caminho, std::ios::app);
             if (arquivo.is_open()) {
                 arquivo << remetente << "|" << conteudo << "|" << timestamp << "\n";
                 arquivo.close();
