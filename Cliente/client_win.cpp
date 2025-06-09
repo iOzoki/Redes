@@ -14,13 +14,11 @@
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
-// --- Variáveis Globais para o DirectX ---
 static ID3D11Device* g_pd3dDevice = NULL;
 static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
 static IDXGISwapChain* g_pSwapChain = NULL;
 static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 
-// --- Protótipos das Funções ---
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
@@ -28,15 +26,12 @@ void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
-// --- Função Principal (main) ---
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
 {
-    // Criar a janela da aplicação
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("ImGui Chat Client"), NULL };
     ::RegisterClassEx(&wc);
     HWND hwnd = ::CreateWindow(wc.lpszClassName, _T("Cliente de Chat TCP"), WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
 
-    // Inicializar o dispositivo Direct3D
     if (!CreateDeviceD3D(hwnd))
     {
         CleanupDeviceD3D();
@@ -44,31 +39,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
         return 1;
     }
 
-    // Mostrar a janela
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
 
-    // Configurar o contexto da Dear ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    // Configurar o estilo da Dear ImGui
     ImGui::StyleColorsDark();
 
-    // Configurar os backends da ImGui para Win32 e DirectX11
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Cor de fundo da janela
     ImVec4 clear_color = ImVec4(0.06f, 0.06f, 0.09f, 1.00f);
 
-    // --- LÓGICA DO CHAT RESTAURADA ---
-    // Cria o objeto principal que controla nossa aplicação de chat.
+    // ABAIXA É A LÓGICA DO CHAT E ACIMA É O DIRECT X11 E OUTRAS COISA AI Q NAO SEI
     auto chat_app = std::make_unique<Cliente::Controller::ChatController>();
 
-    // Loop principal da aplicação
     bool done = false;
     while (!done)
     {
@@ -88,11 +76,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // --- LÓGICA DO CHAT RESTAURADA ---
-        // Em vez de chamar a janela de demonstração, chamamos a lógica do nosso chat.
         chat_app->ExecutarFrame();
 
-        // Renderiza o frame da ImGui
         ImGui::Render();
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, (float*)&clear_color);
@@ -101,8 +86,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
         g_pSwapChain->Present(1, 0);
     }
 
-    // Limpeza ao sair
-    chat_app.reset(); // Destrói o objeto do chat antes de limpar a ImGui.
+    chat_app.reset();
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
@@ -115,7 +99,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
 }
 
 // --- Funções de Ajuda para o DirectX e Janela ---
-// (O conteúdo completo e correto dessas funções vai aqui)
 bool CreateDeviceD3D(HWND hWnd) {
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
