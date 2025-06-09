@@ -11,7 +11,6 @@
 #include <sstream>
 #include <map>
 #include <fstream>
-#include <stdexcept>
 #include <chrono>
 #include <random>
 #include <filesystem>
