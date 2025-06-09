@@ -423,6 +423,16 @@ namespace Controller {
         Persistencia::GerenciadorUsuarios* getGerenciadorUsuarios() { return &gerenciadorUsuarios; }
         // *** DECLARAÇÃO DO MÉTODO DE ENCAMINHAMENTO ***
         void encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo);
+        void salvarMensagemOffline(uint32_t destinatarioId, const std::string& remetente, const std::string& conteudo, time_t timestamp) {
+            std::ofstream arquivo("mensagens_offline/" + std::to_string(destinatarioId) + ".msg", std::ios::app);
+            if (arquivo.is_open()) {
+                arquivo << remetente << "|" << conteudo << "|" << timestamp << "\n";
+                arquivo.close();
+            } else {
+                std::cerr << "[ERRO] Nao foi possivel salvar mensagem offline para o usuario ID " << destinatarioId << std::endl;
+            }
+        }
+
     };
 
     // --- Implementação dos Métodos do Controller ---
@@ -480,6 +490,24 @@ namespace Controller {
             std::string resposta = "LOGIN_OK|" + listaContatosStr + "\n";
             enviarMensagemParaCliente(resposta);
             std::cout << "[INFO] Usuario '" << usuarioLogado->getUsername() << "' logado com sucesso." << std::endl;
+            uint32_t userId = usuarioLogado->getId();
+            std::ifstream arqOffline("mensagens_offline/" + std::to_string(userId) + ".msg");
+            if (arqOffline.is_open()) {
+                std::string linha;
+                while (std::getline(arqOffline, linha)) {
+                    std::stringstream ss(linha);
+                    std::string remetente, conteudo, timestamp;
+
+                    std::getline(ss, remetente, '|');
+                    std::getline(ss, conteudo, '|');
+                    std::getline(ss, timestamp, '|');
+
+                    std::string mensagem = "RECV_MSG|" + remetente + "|" + conteudo + "|" + timestamp + "\n";
+                    enviarMensagemParaCliente(mensagem);
+                }
+                arqOffline.close();
+                std::remove(("mensagens_offline/" + std::to_string(userId) + ".msg").c_str());
+            }
         } else {
             std::string resposta = "LOGIN_FAIL|Usuario ou senha invalidos.\n";
             enviarMensagemParaCliente(resposta);
@@ -586,7 +614,8 @@ namespace Controller {
             std::cout << "[MSG] Mensagem de '" << remetente << "' para '" << destinatarioUsername << "' encaminhada com sucesso." << std::endl;
         } else {
             std::cout << "[MSG] Usuario '" << destinatarioUsername << "' esta offline. Salvando mensagem..." << std::endl;
-            // TODO: Lógica de salvar msg offline
+            time_t timestamp = time(0);
+            salvarMensagemOffline(destinatarioId, remetente, conteudo, timestamp);
         }
     }
 
