@@ -199,9 +199,6 @@ namespace CryptoUtils {
 
 namespace Servidor {
 
-// =================================================================================
-//  NAMESPACE MODEL
-// =================================================================================
 namespace Model {
 
     std::atomic<uint64_t> proximoIdMensagem(1);
@@ -243,9 +240,6 @@ namespace Model {
 
 }
 
-// =================================================================================
-//  NAMESPACE PERSISTENCIA
-// =================================================================================
 namespace Persistencia {
 
     class GerenciadorUsuarios {
@@ -366,9 +360,6 @@ namespace Persistencia {
 
 }
 
-// =================================================================================
-// --- NAMESPACE CONTROLLER ---
-// =================================================================================
 namespace Controller {
     class ChatServidor;
 
@@ -570,9 +561,9 @@ namespace Controller {
                     if (comando == "LOGIN") handleLogin(partes);
                     else if (comando == "REG") handleRegistro(partes);
                     else if (isLogado() && comando == "MSG") handleEnvioMensagem(partes);
+                    else if (isLogado() && comando == "TYPING_ON") handleTypingOn(partes);
+                    else if (isLogado() && comando == "TYPING_OFF") handleTypingOff(partes);
                     else if (!isLogado()) std::cerr << "[AVISO] Cliente tentou comando '" << comando << "' antes de logar." << std::endl;
-                    else if (isLogado() && comando == "TYPING_ON") handleTypingOn(partes); //VERIFICAR ISSO AQUI
-                    else if (isLogado() && comando == "TYPING_OFF") handleTypingOff(partes); // ISSO AQUI TAMBEM
                     else std::cerr << "[ERRO] Comando desconhecido: " << comando << std::endl;
                 }
             }

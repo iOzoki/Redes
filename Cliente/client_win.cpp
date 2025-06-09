@@ -1,6 +1,3 @@
-// client_win.cpp
-// Ponto de entrada principal para a aplicação cliente com GUI usando Dear ImGui e DirectX11
-
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
