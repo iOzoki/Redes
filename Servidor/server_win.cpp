@@ -195,12 +195,12 @@ namespace CryptoUtils {
         return sha256(senha + salt);
     }
 
-} // Fim de CryptoUtils
+}
 
 namespace Servidor {
 
 // =================================================================================
-// --- NAMESPACE MODEL ---
+//  NAMESPACE MODEL
 // =================================================================================
 namespace Model {
 
@@ -222,7 +222,6 @@ namespace Model {
         Usuario(uint32_t id, const std::string& uname, const std::string& pHash, const std::string& s)
             : id(id), username(uname), passwordHash(pHash), salt(s), online(false), ultimoLoginTimestamp(0) {}
 
-        // Construtor de cópia explícito para lidar com o membro const 'id'
         Usuario(const Usuario& other)
             : id(other.id), username(other.username), passwordHash(other.passwordHash), salt(other.salt),
               online(other.online), ultimoLoginTimestamp(other.ultimoLoginTimestamp) {}
@@ -240,13 +239,12 @@ namespace Model {
     };
 
     class Mensagem {
-        // ... sua classe Mensagem aqui, se necessário ...
     };
 
-} // fim do namespace Model
+}
 
 // =================================================================================
-// --- NAMESPACE PERSISTENCIA ---
+//  NAMESPACE PERSISTENCIA
 // =================================================================================
 namespace Persistencia {
 
@@ -335,14 +333,14 @@ namespace Persistencia {
         std::shared_ptr<Model::Usuario> registrarNovoUsuario(const std::string& username, const std::string& senha) {
             std::lock_guard<std::mutex> lock(mutexUsuarios);
             if (findUserByUsername(username) != nullptr) {
-                return nullptr; // Usuário já existe
+                return nullptr;
             }
             uint32_t novoId = proximoIdDisponivel.fetch_add(1);
             std::string salt = CryptoUtils::gerarSalt();
             std::string hash = CryptoUtils::calcularHash(senha, salt);
             auto novoUsuario = std::make_shared<Model::Usuario>(novoId, username, hash, salt);
             usuariosEmMemoria.push_back(novoUsuario);
-            reescreverArquivo(); // Salva toda a lista atualizada
+            reescreverArquivo();
             return novoUsuario;
         }
 
@@ -352,12 +350,12 @@ namespace Persistencia {
                 if (u->getUsername() == username) {
                     std::string hashTentativa = CryptoUtils::calcularHash(senha, u->getSalt());
                     if (u->verificarHashSenha(hashTentativa)) {
-                        return u; // Sucesso, retorna o ponteiro para o usuário
+                        return u;
                     }
-                    return nullptr; // Senha incorreta
+                    return nullptr;
                 }
             }
-            return nullptr; // Usuário não encontrado
+            return nullptr;
         }
 
         std::vector<std::shared_ptr<Model::Usuario>> getTodosUsuarios() {
@@ -366,7 +364,7 @@ namespace Persistencia {
         }
     };
 
-} // fim da Persistencia
+}
 
 // =================================================================================
 // --- NAMESPACE CONTROLLER ---
@@ -392,8 +390,15 @@ namespace Controller {
         ~TratadorCliente();
         uint32_t getUsuarioId() const;
         bool isLogado() const;
+
         void processarComunicacaoCliente();
+
         void enviarMensagemParaCliente(const std::string& msg);
+
+        void handleTypingOn(const std::vector<std::string>& params);
+
+        void handleTypingOff(const std::vector<std::string>& params);
+
     };
 
     class ChatServidor {
@@ -420,9 +425,12 @@ namespace Controller {
         void adicionarSessao(uint32_t userId, TratadorCliente* tratador);
         void removerSessao(uint32_t userId);
         bool isUsuarioOnline(uint32_t userId);
+
         Persistencia::GerenciadorUsuarios* getGerenciadorUsuarios() { return &gerenciadorUsuarios; }
-        // *** DECLARAÇÃO DO MÉTODO DE ENCAMINHAMENTO ***
+
         void encaminharMensagem(const std::string& remetente, const std::string& destinatarioUsername, const std::string& conteudo);
+
+        void encaminharNotificacaoDigitando(const std::string& remetente, const std::string& destinatarioUsername, bool estaDigitando);
 
         void salvarMensagemOffline(uint32_t destinatarioId, const std::string& remetente, const std::string& conteudo, time_t timestamp) {
             fs::create_directories("mensagens_offline");
@@ -438,8 +446,6 @@ namespace Controller {
         }
 
     };
-
-    // --- Implementação dos Métodos do Controller ---
 
     TratadorCliente::TratadorCliente(SOCKET socket, ChatServidor* servidor, Persistencia::GerenciadorUsuarios* gerenciador)
         : socketCliente(socket), instanciaServidor(servidor), gerenciadorUsuarios(gerenciador), usuarioLogado(nullptr) {}
@@ -531,10 +537,8 @@ namespace Controller {
         }
     }
 
-    // *** IMPLEMENTAÇÃO CORRIGIDA ***
     void TratadorCliente::handleEnvioMensagem(const std::vector<std::string>& params) {
         if (!isLogado() || params.size() < 3) return;
-        // Chama o método de encaminhamento do servidor.
         instanciaServidor->encaminharMensagem(usuarioLogado->getUsername(), params[1], params[2]);
     }
 
@@ -693,8 +697,8 @@ namespace Controller {
         }
     }
 
-} // fim do Controller
-} // fim do Servidor
+}
+}
 
 int main() {
     SetConsoleOutputCP(CP_UTF8);
