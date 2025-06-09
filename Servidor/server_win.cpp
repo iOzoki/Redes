@@ -384,6 +384,8 @@ namespace Controller {
         void handleLogin(const std::vector<std::string>& params);
         void handleRegistro(const std::vector<std::string>& params);
         void handleEnvioMensagem(const std::vector<std::string>& params);
+        void handleTypingOn(const std::vector<std::string>& params);
+        void handleTypingOff(const std::vector<std::string>& params);
 
     public:
         TratadorCliente(SOCKET socket, ChatServidor* servidor, Persistencia::GerenciadorUsuarios* gerenciador);
@@ -395,9 +397,6 @@ namespace Controller {
 
         void enviarMensagemParaCliente(const std::string& msg);
 
-        void handleTypingOn(const std::vector<std::string>& params);
-
-        void handleTypingOff(const std::vector<std::string>& params);
 
     };
 
@@ -542,6 +541,16 @@ namespace Controller {
         instanciaServidor->encaminharMensagem(usuarioLogado->getUsername(), params[1], params[2]);
     }
 
+    void TratadorCliente::handleTypingOn(const std::vector<std::string>& params) {
+        if (!isLogado() || params.size() < 2) return;
+        instanciaServidor->encaminharNotificacaoDigitando(usuarioLogado->getUsername(), params[1], true);
+    }
+
+    void TratadorCliente::handleTypingOff(const std::vector<std::string>& params) {
+        if (!isLogado() || params.size() < 2) return;
+        instanciaServidor->encaminharNotificacaoDigitando(usuarioLogado->getUsername(), params[1], false);
+    }
+
     void TratadorCliente::processarComunicacaoCliente() {
         char buffer[TAMANHO_BUFFER];
         int bytesRecebidos;
@@ -562,6 +571,8 @@ namespace Controller {
                     else if (comando == "REG") handleRegistro(partes);
                     else if (isLogado() && comando == "MSG") handleEnvioMensagem(partes);
                     else if (!isLogado()) std::cerr << "[AVISO] Cliente tentou comando '" << comando << "' antes de logar." << std::endl;
+                    else if (isLogado() && comando == "TYPING_ON") handleTypingOn(partes); //VERIFICAR ISSO AQUI
+                    else if (isLogado() && comando == "TYPING_OFF") handleTypingOff(partes); // ISSO AQUI TAMBEM
                     else std::cerr << "[ERRO] Comando desconhecido: " << comando << std::endl;
                 }
             }
@@ -694,6 +705,20 @@ namespace Controller {
         if (socketServidorOuvinte != INVALID_SOCKET) {
             closesocket(socketServidorOuvinte);
             socketServidorOuvinte = INVALID_SOCKET;
+        }
+    }
+    void ChatServidor::encaminharNotificacaoDigitando(const std::string& remetente, const std::string& destinatarioUsername, bool estaDigitando) {
+        auto destinatarioUserObj = gerenciadorUsuarios.findUserByUsername(destinatarioUsername);
+        if (!destinatarioUserObj) return;
+
+        uint32_t destinatarioId = destinatarioUserObj->getId();
+        std::lock_guard<std::mutex> lock(mutexSessoes);
+        auto it = sessoesAtivas.find(destinatarioId);
+        if (it != sessoesAtivas.end()) {
+            TratadorCliente* tratadorDestino = it->second;
+            std::string comando = estaDigitando ? "TYPING_ON_NOTIFY|" : "TYPING_OFF_NOTIFY|";
+            std::string msgParaEnviar = comando + remetente + "\n";
+            tratadorDestino->enviarMensagemParaCliente(msgParaEnviar);
         }
     }
 
