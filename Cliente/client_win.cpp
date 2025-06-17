@@ -54,7 +54,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
 
     ImVec4 clear_color = ImVec4(0.06f, 0.06f, 0.09f, 1.00f);
 
-    // ABAIXA É A LÓGICA DO CHAT E ACIMA É O DIRECT X11 E OUTRAS COISA AI Q NAO SEI
     auto chat_app = std::make_unique<Cliente::Controller::ChatController>();
 
     bool done = false;
@@ -71,7 +70,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, int)
         if (done)
             break;
 
-        // Inicia um novo frame da Dear ImGui
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();

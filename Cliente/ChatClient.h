@@ -205,8 +205,15 @@ namespace Controller {
                     scrollParaBaixo = ImGui::GetScrollMaxY() + 100.0f;
                 } else if (comando == "USER_STATUS") {
                     if (partes.size() < 3) continue;
-                    if (contatos.count(partes[1])) {
-                        contatos[partes[1]].online = (partes[2] == "1");
+                    std::string username = partes[1];
+                    if (username == usernameLogado) continue;
+
+                    bool isOnline = (partes[2] == "1");
+
+                    if (!contatos.count(username)) {
+                        contatos[username] = { username, isOnline, false };
+                    } else {
+                        contatos[username].online = isOnline;
                     }
                 } else if (comando == "TYPING_ON_NOTIFY") {
                     if (partes.size() > 1 && contatos.count(partes[1])) {
@@ -231,7 +238,7 @@ namespace Controller {
                     estadoAtual = AppState::TELA_LOGIN;
                     statusMessage = "Conectado! Por favor, faca o login.";
                 } else {
-                    statusMessage = "Falha ao conectar ao servidor.";
+                    statusMessage = "Falha ao conectar com o servidor.";
                 }
             }
             ImGui::Text("%s", statusMessage.c_str());
@@ -268,6 +275,7 @@ namespace Controller {
         void DesenharTelaChat() {
             ImGui::Begin("Contatos", NULL, ImGuiWindowFlags_NoCollapse);
             if (ImGui::Button("Deslogar")) {
+                rede.enviarMensagem("LOGOUT\n");
                 rede.desconectar();
                 estadoAtual = AppState::TELA_CONEXAO;
                 usernameLogado.clear();
