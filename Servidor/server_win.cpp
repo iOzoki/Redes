@@ -382,6 +382,7 @@ namespace Controller {
         ~TratadorCliente();
         uint32_t getUsuarioId() const;
         bool isLogado() const;
+        std::string getLogadoUsername() const;
 
         void processarComunicacaoCliente();
 
@@ -421,6 +422,8 @@ namespace Controller {
 
         void encaminharNotificacaoDigitando(const std::string& remetente, const std::string& destinatarioUsername, bool estaDigitando);
 
+        void broadcastStatusUpdate(uint32_t pIdExcluido, const std::string& username, bool isOnline);
+
         void salvarMensagemOffline(uint32_t destinatarioId, const std::string& remetente, const std::string& conteudo, time_t timestamp) {
             fs::create_directories("mensagens_offline");
 
@@ -454,6 +457,10 @@ namespace Controller {
         return usuarioLogado != nullptr;
     }
 
+    std::string TratadorCliente::getLogadoUsername() const {
+        return usuarioLogado ? usuarioLogado->getUsername() : "";
+    }
+
     std::vector<std::string> TratadorCliente::parseMensagem(const std::string& msg) {
         std::vector<std::string> partes;
         std::stringstream ss(msg);
@@ -477,6 +484,7 @@ namespace Controller {
         if (usuarioPtr) {
             this->usuarioLogado = usuarioPtr;
             instanciaServidor->adicionarSessao(usuarioLogado->getId(), this);
+            instanciaServidor->broadcastStatusUpdate(usuarioLogado->getId(), usuarioLogado->getUsername(), true);
 
             std::string listaContatosStr;
             auto todosUsuarios = gerenciadorUsuarios->getTodosUsuarios();
@@ -562,6 +570,9 @@ namespace Controller {
                     else if (isLogado() && comando == "MSG") handleEnvioMensagem(partes);
                     else if (isLogado() && comando == "TYPING_ON") handleTypingOn(partes);
                     else if (isLogado() && comando == "TYPING_OFF") handleTypingOff(partes);
+                    else if (isLogado() && comando == "LOGOUT") {
+                        break;
+                    }
                     else if (!isLogado()) std::cerr << "[AVISO] Cliente tentou comando '" << comando << "' antes de logar." << std::endl;
                     else std::cerr << "[ERRO] Comando desconhecido: " << comando << std::endl;
                 }
@@ -598,7 +609,13 @@ namespace Controller {
                 tratador->processarComunicacaoCliente();
 
                 if (tratador->isLogado()) {
-                    this->removerSessao(tratador->getUsuarioId());
+                    uint32_t userId = tratador->getUsuarioId();
+                    std::string username = tratador->getLogadoUsername();
+                    this->removerSessao(userId);
+                    if (!username.empty()) {
+                         this->broadcastStatusUpdate(userId, username, false);
+                         std::cout << "[INFO] Usuario '" << username << "' deslogado." << std::endl;
+                    }
                 }
                 std::cout << "[INFO] Conexao encerrada. socket: " << socketNovoCliente << std::endl;
                 delete tratador;
@@ -697,6 +714,18 @@ namespace Controller {
             socketServidorOuvinte = INVALID_SOCKET;
         }
     }
+
+    void ChatServidor::broadcastStatusUpdate(uint32_t pIdExcluido, const std::string& username, bool isOnline) {
+        std::lock_guard<std::mutex> lock(mutexSessoes);
+        std::string status = isOnline ? "1" : "0";
+        std::string msg = "USER_STATUS|" + username + "|" + status + "\n";
+        for (auto const& [userId, tratador] : sessoesAtivas) {
+            if (userId != pIdExcluido) {
+                tratador->enviarMensagemParaCliente(msg);
+            }
+        }
+    }
+
     void ChatServidor::encaminharNotificacaoDigitando(const std::string& remetente, const std::string& destinatarioUsername, bool estaDigitando) {
         auto destinatarioUserObj = gerenciadorUsuarios.findUserByUsername(destinatarioUsername);
         if (!destinatarioUserObj) return;
