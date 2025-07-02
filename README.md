@@ -1,6 +1,7 @@
 Chat Cliente/Servidor criado na cadeira de Redes de Computadores
 #
 Como utilizar servidor e cliente: 
+#
 1º Clonando - Clone o repositório
 #
 2º Servidor - Configure a execução do programa em CMake Application com o Target: server e Executable: server.
