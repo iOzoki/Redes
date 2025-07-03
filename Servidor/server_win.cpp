@@ -259,130 +259,127 @@ namespace Servidor {
     }
 
     namespace Persistencia {
-            class GerenciadorUsuarios {
-    private:
-        const std::string nomeArquivo = "usuarios.dat";
-        std::vector<std::shared_ptr<Model::Usuario>> usuariosEmMemoria;
-        std::atomic<uint32_t> proximoIdDisponivel;
-        std::mutex mutexUsuarios;
+        class GerenciadorUsuarios {
+        private:
+            const std::string nomeArquivo = "usuarios.dat";
+            std::vector<std::shared_ptr<Model::Usuario> > usuariosEmMemoria;
+            std::atomic<uint32_t> proximoIdDisponivel;
+            std::mutex mutexUsuarios;
 
-        // Esta é a nova função interna que NÃO bloqueia o mutex.
-        // Ela será chamada pelas funções que já têm o bloqueio.
-        std::shared_ptr<Model::Usuario> findUserByUsername_nolock(const std::string& username) {
-            for (const auto& u : usuariosEmMemoria) {
-                if (u->getUsername() == username) {
-                    return u;
-                }
-            }
-            return nullptr;
-        }
-
-        void escreverString(std::ofstream& arquivo, const std::string& str) {
-            size_t tamanho = str.size();
-            arquivo.write(reinterpret_cast<const char*>(&tamanho), sizeof(tamanho));
-            arquivo.write(str.c_str(), tamanho);
-        }
-
-        std::string lerString(std::ifstream& arquivo) {
-            size_t tamanho = 0;
-            arquivo.read(reinterpret_cast<char*>(&tamanho), sizeof(tamanho));
-            if (arquivo.fail()) return "";
-            std::string str(tamanho, '\0');
-            arquivo.read(&str[0], tamanho);
-            if (arquivo.fail()) return "";
-            return str;
-        }
-
-        void reescreverArquivo() {
-            std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::trunc);
-            if (!arquivo.is_open()) return;
-            for (const auto& usuario : usuariosEmMemoria) {
-                uint32_t id = usuario->getId();
-                arquivo.write(reinterpret_cast<const char*>(&id), sizeof(id));
-                escreverString(arquivo, usuario->getUsername());
-                escreverString(arquivo, usuario->getPasswordHash());
-                escreverString(arquivo, usuario->getSalt());
-                time_t ultimoLogin = usuario->getUltimoLoginTimestamp();
-                arquivo.write(reinterpret_cast<const char*>(&ultimoLogin), sizeof(ultimoLogin));
-            }
-        }
-
-    public:
-        GerenciadorUsuarios() : proximoIdDisponivel(1) {
-            carregarUsuarios();
-        }
-
-        void carregarUsuarios() {
-            std::lock_guard<std::mutex> lock(mutexUsuarios);
-            std::ifstream arquivo(nomeArquivo, std::ios::binary);
-            if (!arquivo.is_open()) {
-                std::cout << "[PERSISTENCIA] Arquivo de usuarios '" << nomeArquivo << "' nao encontrado. Sera criado um novo." << std::endl;
-                return;
-            }
-            usuariosEmMemoria.clear();
-            uint32_t maxId = 0;
-            while (arquivo.peek() != EOF) {
-                uint32_t id;
-                arquivo.read(reinterpret_cast<char*>(&id), sizeof(id));
-                if (arquivo.eof()) break;
-                std::string username = lerString(arquivo);
-                std::string passwordHash = lerString(arquivo);
-                std::string salt = lerString(arquivo);
-                time_t ultimoLogin;
-                arquivo.read(reinterpret_cast<char*>(&ultimoLogin), sizeof(ultimoLogin));
-                if (arquivo.fail()) {
-                    std::cerr << "[ERRO] Arquivo de usuarios corrompido. Parando o carregamento." << std::endl;
-                    break;
-                }
-                auto usuarioCarregado = std::make_shared<Model::Usuario>(id, username, passwordHash, salt);
-                usuarioCarregado->setUltimoLoginTimestamp(ultimoLogin);
-                usuariosEmMemoria.push_back(usuarioCarregado);
-                if (id > maxId) maxId = id;
-            }
-            proximoIdDisponivel = maxId + 1;
-        }
-
-        // A função pública agora bloqueia e chama a versão interna.
-        std::shared_ptr<Model::Usuario> findUserByUsername(const std::string& username) {
-            std::lock_guard<std::mutex> lock(mutexUsuarios);
-            return findUserByUsername_nolock(username);
-        }
-
-        // A função de registro agora chama a versão interna sem bloqueio, evitando o deadlock.
-        std::shared_ptr<Model::Usuario> registrarNovoUsuario(const std::string& username, const std::string& senha) {
-            std::lock_guard<std::mutex> lock(mutexUsuarios);
-            if (findUserByUsername_nolock(username) != nullptr) { // <-- MUDANÇA IMPORTANTE AQUI
-                return nullptr;
-            }
-            uint32_t novoId = proximoIdDisponivel.fetch_add(1);
-            std::string salt = CryptoUtils::gerarSalt();
-            std::string hash = CryptoUtils::calcularHash(senha, salt);
-            auto novoUsuario = std::make_shared<Model::Usuario>(novoId, username, hash, salt);
-            usuariosEmMemoria.push_back(novoUsuario);
-            reescreverArquivo();
-            return novoUsuario;
-        }
-
-        std::shared_ptr<Model::Usuario> autenticarUsuario(const std::string& username, const std::string& senha) {
-            std::lock_guard<std::mutex> lock(mutexUsuarios);
-            for (const auto& u : usuariosEmMemoria) {
-                if (u->getUsername() == username) {
-                    std::string hashTentativa = CryptoUtils::calcularHash(senha, u->getSalt());
-                    if (u->verificarHashSenha(hashTentativa)) {
+            std::shared_ptr<Model::Usuario> findUserByUsername_nolock(const std::string &username) {
+                for (const auto &u: usuariosEmMemoria) {
+                    if (u->getUsername() == username) {
                         return u;
                     }
-                    return nullptr;
+                }
+                return nullptr;
+            }
+
+            void escreverString(std::ofstream &arquivo, const std::string &str) {
+                size_t tamanho = str.size();
+                arquivo.write(reinterpret_cast<const char *>(&tamanho), sizeof(tamanho));
+                arquivo.write(str.c_str(), tamanho);
+            }
+
+            std::string lerString(std::ifstream &arquivo) {
+                size_t tamanho = 0;
+                arquivo.read(reinterpret_cast<char *>(&tamanho), sizeof(tamanho));
+                if (arquivo.fail()) return "";
+                std::string str(tamanho, '\0');
+                arquivo.read(&str[0], tamanho);
+                if (arquivo.fail()) return "";
+                return str;
+            }
+
+            void reescreverArquivo() {
+                std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::trunc);
+                if (!arquivo.is_open()) return;
+                for (const auto &usuario: usuariosEmMemoria) {
+                    uint32_t id = usuario->getId();
+                    arquivo.write(reinterpret_cast<const char *>(&id), sizeof(id));
+                    escreverString(arquivo, usuario->getUsername());
+                    escreverString(arquivo, usuario->getPasswordHash());
+                    escreverString(arquivo, usuario->getSalt());
+                    time_t ultimoLogin = usuario->getUltimoLoginTimestamp();
+                    arquivo.write(reinterpret_cast<const char *>(&ultimoLogin), sizeof(ultimoLogin));
                 }
             }
-            return nullptr;
-        }
 
-        std::vector<std::shared_ptr<Model::Usuario>> getTodosUsuarios() {
-            std::lock_guard<std::mutex> lock(mutexUsuarios);
-            return usuariosEmMemoria;
-        }
-    };
+        public:
+            GerenciadorUsuarios() : proximoIdDisponivel(1) {
+                carregarUsuarios();
+            }
 
+            void carregarUsuarios() {
+                std::lock_guard<std::mutex> lock(mutexUsuarios);
+                std::ifstream arquivo(nomeArquivo, std::ios::binary);
+                if (!arquivo.is_open()) {
+                    std::cout << "[PERSISTENCIA] Arquivo de usuarios '" << nomeArquivo <<
+                            "' nao encontrado. Sera criado um novo." << std::endl;
+                    return;
+                }
+                usuariosEmMemoria.clear();
+                uint32_t maxId = 0;
+                while (arquivo.peek() != EOF) {
+                    uint32_t id;
+                    arquivo.read(reinterpret_cast<char *>(&id), sizeof(id));
+                    if (arquivo.eof()) break;
+                    std::string username = lerString(arquivo);
+                    std::string passwordHash = lerString(arquivo);
+                    std::string salt = lerString(arquivo);
+                    time_t ultimoLogin;
+                    arquivo.read(reinterpret_cast<char *>(&ultimoLogin), sizeof(ultimoLogin));
+                    if (arquivo.fail()) {
+                        std::cerr << "[ERRO] Arquivo de usuarios corrompido. Parando o carregamento." << std::endl;
+                        break;
+                    }
+                    auto usuarioCarregado = std::make_shared<Model::Usuario>(id, username, passwordHash, salt);
+                    usuarioCarregado->setUltimoLoginTimestamp(ultimoLogin);
+                    usuariosEmMemoria.push_back(usuarioCarregado);
+                    if (id > maxId) maxId = id;
+                }
+                proximoIdDisponivel = maxId + 1;
+            }
+
+            std::shared_ptr<Model::Usuario> findUserByUsername(const std::string &username) {
+                std::lock_guard<std::mutex> lock(mutexUsuarios);
+                return findUserByUsername_nolock(username);
+            }
+
+            std::shared_ptr<Model::Usuario>
+            registrarNovoUsuario(const std::string &username, const std::string &senha) {
+                std::lock_guard<std::mutex> lock(mutexUsuarios);
+                if (findUserByUsername_nolock(username) != nullptr) {
+                    return nullptr;
+                }
+                uint32_t novoId = proximoIdDisponivel.fetch_add(1);
+                std::string salt = CryptoUtils::gerarSalt();
+                std::string hash = CryptoUtils::calcularHash(senha, salt);
+                auto novoUsuario = std::make_shared<Model::Usuario>(novoId, username, hash, salt);
+                usuariosEmMemoria.push_back(novoUsuario);
+                reescreverArquivo();
+                return novoUsuario;
+            }
+
+            std::shared_ptr<Model::Usuario> autenticarUsuario(const std::string &username, const std::string &senha) {
+                std::lock_guard<std::mutex> lock(mutexUsuarios);
+                for (const auto &u: usuariosEmMemoria) {
+                    if (u->getUsername() == username) {
+                        std::string hashTentativa = CryptoUtils::calcularHash(senha, u->getSalt());
+                        if (u->verificarHashSenha(hashTentativa)) {
+                            return u;
+                        }
+                        return nullptr;
+                    }
+                }
+                return nullptr;
+            }
+
+            std::vector<std::shared_ptr<Model::Usuario> > getTodosUsuarios() {
+                std::lock_guard<std::mutex> lock(mutexUsuarios);
+                return usuariosEmMemoria;
+            }
+        };
     }
 
     namespace Controller {
@@ -397,7 +394,7 @@ namespace Servidor {
             std::string bufferRecepcao;
 
             std::vector<std::string> parseMensagem(const std::string &msg);
-
+            //LEITORES DE PARAMETROS QUE SÃO IDENTIFICADOS NO PARSE[0] DPS DE DIVIDIR A STRING RECEBIDA DO CLIENTE
             void handleLogin(const std::vector<std::string> &params);
 
             void handleRegistro(const std::vector<std::string> &params);
@@ -510,6 +507,7 @@ namespace Servidor {
             return usuarioLogado ? usuarioLogado->getUsername() : "";
         }
 
+        //Dividir a mensagem pra comando, destinatario e conteudo.
         std::vector<std::string> TratadorCliente::parseMensagem(const std::string &msg) {
             std::vector<std::string> partes;
             std::stringstream ss(msg);
@@ -623,8 +621,9 @@ namespace Servidor {
                         else if (isLogado() && comando == "TYPING_OFF") handleTypingOff(partes);
                         else if (isLogado() && comando == "LOGOUT") {
                             break;
-                        } else if (!isLogado()) std::cerr << "[AVISO] Cliente tentou comando '" << comando <<
-                                                "' antes de logar." << std::endl;
+                        } else if (!isLogado())
+                            std::cerr << "[AVISO] Cliente tentou comando '" << comando <<
+                                    "' antes de logar." << std::endl;
                         else std::cerr << "[ERRO] Comando desconhecido: " << comando << std::endl;
                     }
                 }
@@ -659,11 +658,11 @@ namespace Servidor {
                 return;
             }
 
-            std::cout << "[INFO] Servidor de Chat iniciado na porta " << porta << std::endl;
+            std::cout << "Servidor de Chat iniciado na porta " << porta << std::endl;
             while (true) {
                 SOCKET socketNovoCliente = accept(socketServidorOuvinte, nullptr, nullptr);
                 if (socketNovoCliente == INVALID_SOCKET) {
-                    std::cerr << "[ERRO] accept falhou com erro: " << WSAGetLastError() << std::endl;
+                    std::cerr << "[ERRO] accept falhou, o erro é: " << WSAGetLastError() << std::endl;
                     continue;
                 }
                 std::cout << "[INFO] Nova conexao aceita. Socket: " << socketNovoCliente << std::endl;
@@ -723,19 +722,20 @@ namespace Servidor {
             std::lock_guard<std::mutex> lock(mutexSessoes);
             if (sessoesAtivas.count(userId)) {
                 sessoesAtivas.erase(userId);
-                std::cout << "[INFO] Sessao removida para o usuario ID: " << userId << std::endl;
+                std::cout << "Sessao removida do usuario ID: " << userId << std::endl;
             }
         }
 
         bool ChatServidor::isUsuarioOnline(uint32_t userId) {
             std::lock_guard<std::mutex> lock(mutexSessoes);
             return sessoesAtivas.count(userId) > 0;
+            //count em map com > 0 retorna true se tiver a chave procurada.
         }
 
         bool ChatServidor::inicializarWinsock() {
-            WSADATA wsaData;
-            int resultado = WSAStartup(MAKEWORD(2, 2), &wsaData);
-            if (resultado != 0) {
+            WSADATA wsaData;//biblioteca winsock
+            int resultado = WSAStartup(MAKEWORD(2, 2), &wsaData);//inicialização da versão 2.2 da biblioteca winsock
+            if (resultado != 0) {//se retornar zero é ok, caso contrário é erro
                 std::cerr << "[ERRO] WSAStartup falhou: " << resultado << std::endl;
                 return false;
             }
@@ -744,21 +744,21 @@ namespace Servidor {
 
         bool ChatServidor::criarSocketOuvinte() {
             socketServidorOuvinte = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (socketServidorOuvinte == INVALID_SOCKET) {
-                std::cerr << "[ERRO] Criacao do socket falhou: " << WSAGetLastError() << std::endl;
+            if (socketServidorOuvinte == INVALID_SOCKET) {//se o socket criado no inicio for invalido vai falhar
+                std::cerr << "Criacao do socket falhou: " << WSAGetLastError() << std::endl;
                 return false;
             }
             return true;
         }
 
         void ChatServidor::configurarEnderecoServidor(int porta) {
-            enderecoServidor.sin_family = AF_INET;
-            enderecoServidor.sin_addr.s_addr = INADDR_ANY;
-            enderecoServidor.sin_port = htons(porta);
+            enderecoServidor.sin_family = AF_INET;//define ipv4
+            enderecoServidor.sin_addr.s_addr = INADDR_ANY;//aceitar conexoes de qualquer interface de rede tipo wifi e ethernet
+            enderecoServidor.sin_port = htons(porta);//define a porta do servidor
         }
 
         bool ChatServidor::vincularSocketOuvinte() {
-            if (bind(socketServidorOuvinte, (sockaddr *) &enderecoServidor, sizeof(enderecoServidor)) == SOCKET_ERROR) {
+            if (bind(socketServidorOuvinte, (sockaddr *) &enderecoServidor, sizeof(enderecoServidor)) == SOCKET_ERROR) //vincula o scoket criado no inicio ao endereco do servidor
                 std::cerr << "[ERRO] Bind falhou: " << WSAGetLastError() << std::endl;
                 return false;
             }
@@ -766,7 +766,7 @@ namespace Servidor {
         }
 
         bool ChatServidor::iniciarEscuta() {
-            if (listen(socketServidorOuvinte, SOMAXCONN) == SOCKET_ERROR) {
+            if (listen(socketServidorOuvinte, SOMAXCONN) == SOCKET_ERROR) {//coloca o socket no modo escuta e uma sugestão de conexão pro sistema operacional sla algo assim
                 std::cerr << "[ERRO] Listen falhou: " << WSAGetLastError() << std::endl;
                 return false;
             }
