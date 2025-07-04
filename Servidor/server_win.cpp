@@ -269,7 +269,7 @@ namespace Servidor {
             std::shared_ptr<Model::Usuario> findUserByUsername_nolock(const std::string &username) {
                 for (const auto &u: usuariosEmMemoria) {
                     if (u->getUsername() == username) {
-                        return u;
+                        return u;//retorna um ponteiro inteligente
                     }
                 }
                 return nullptr;
@@ -285,14 +285,14 @@ namespace Servidor {
                 size_t tamanho = 0;
                 arquivo.read(reinterpret_cast<char *>(&tamanho), sizeof(tamanho));
                 if (arquivo.fail()) return "";
-                std::string str(tamanho, '\0');
+                std::string str(tamanho, '\0');//preenche os espaços vazios da nova string
                 arquivo.read(&str[0], tamanho);
                 if (arquivo.fail()) return "";
                 return str;
             }
 
             void reescreverArquivo() {
-                std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::trunc);
+                std::ofstream arquivo(nomeArquivo, std::ios::binary | std::ios::trunc);//abrir arquivo
                 if (!arquivo.is_open()) return;
                 for (const auto &usuario: usuariosEmMemoria) {
                     uint32_t id = usuario->getId();
@@ -527,7 +527,7 @@ namespace Servidor {
         void TratadorCliente::handleLogin(const std::vector<std::string> &params) {
             if (params.size() < 3) return;
 
-            auto usuarioPtr = gerenciadorUsuarios->autenticarUsuario(params[1], params[2]);
+            auto usuarioPtr = gerenciadorUsuarios->autenticarUsuario(params[1], params[2]);//ponteiro para o objeto usuario que está nos parametros
             if (usuarioPtr) {
                 this->usuarioLogado = usuarioPtr;
                 instanciaServidor->adicionarSessao(usuarioLogado->getId(), this);
@@ -537,7 +537,7 @@ namespace Servidor {
                 auto todosUsuarios = gerenciadorUsuarios->getTodosUsuarios();
                 for (const auto &u: todosUsuarios) {
                     if (u->getId() == this->usuarioLogado->getId()) continue;
-                    listaContatosStr += u->getUsername() + "," + (instanciaServidor->isUsuarioOnline(u->getId())
+                    listaContatosStr += u->getUsername() + "," + (instanciaServidor->isUsuarioOnline(u->getId())//montando a lista de contatos
                                                                       ? "1"
                                                                       : "0") + ";";
                 }
@@ -605,7 +605,7 @@ namespace Servidor {
                 while ((bytesRecebidos = recv(socketCliente, buffer, TAMANHO_BUFFER, 0)) > 0) {
                     bufferRecepcao.append(buffer, bytesRecebidos);
                     size_t pos;
-                    while ((pos = bufferRecepcao.find('\n')) != std::string::npos) {
+                    while ((pos = bufferRecepcao.find('\n')) != std::string::npos) { //npos = not a posicion
                         std::string mensagemCompleta = bufferRecepcao.substr(0, pos);
                         bufferRecepcao.erase(0, pos + 1);
                         if (mensagemCompleta.empty()) continue;
@@ -667,9 +667,9 @@ namespace Servidor {
                 }
                 std::cout << "[INFO] Nova conexao aceita. Socket: " << socketNovoCliente << std::endl;
 
-                std::thread([this, socketNovoCliente]() {
+                std::thread([this, socketNovoCliente]() {//pra cada conexão uma thread independente
                     auto *tratador = new TratadorCliente(socketNovoCliente, this, getGerenciadorUsuarios());
-                    tratador->processarComunicacaoCliente();
+                    tratador->processarComunicacaoCliente();//thread fica presa aqui ate a conexao acabar
 
                     if (tratador->isLogado()) {
                         uint32_t userId = tratador->getUsuarioId();
@@ -682,7 +682,7 @@ namespace Servidor {
                     }
                     std::cout << "[INFO] Conexao encerrada. socket: " << socketNovoCliente << std::endl;
                     delete tratador;
-                }).detach();
+                }).detach();//desvincular thread principal do servidor das dos usuarios
             }
         }
 
@@ -758,7 +758,7 @@ namespace Servidor {
         }
 
         bool ChatServidor::vincularSocketOuvinte() {
-            if (bind(socketServidorOuvinte, (sockaddr *) &enderecoServidor, sizeof(enderecoServidor)) == SOCKET_ERROR) //vincula o scoket criado no inicio ao endereco do servidor
+            if (bind(socketServidorOuvinte, (sockaddr *) &enderecoServidor, sizeof(enderecoServidor)) == SOCKET_ERROR) {//vincula o scoket criado no inicio ao endereco do servidor
                 std::cerr << "[ERRO] Bind falhou: " << WSAGetLastError() << std::endl;
                 return false;
             }
@@ -774,22 +774,22 @@ namespace Servidor {
         }
 
         void ChatServidor::limparRecursosWinsock() {
-            WSACleanup();
+            WSACleanup();//liberar os recursos da biblioteca winsock alocado
         }
 
         void ChatServidor::fecharSocketOuvinte() {
             if (socketServidorOuvinte != INVALID_SOCKET) {
                 closesocket(socketServidorOuvinte);
-                socketServidorOuvinte = INVALID_SOCKET;
+                socketServidorOuvinte = INVALID_SOCKET;//serve so pra fechar o socket e deixar invalido
             }
         }
 
         void ChatServidor::broadcastStatusUpdate(uint32_t pIdExcluido, const std::string &username, bool isOnline) {
             std::lock_guard<std::mutex> lock(mutexSessoes);
-            std::string status = isOnline ? "1" : "0";
-            std::string msg = "USER_STATUS|" + username + "|" + status + "\n";
+            std::string status = isOnline ? "1" : "0";//string com operador ternario pra se tiver online(1) ou offline(0)
+            std::string msg = "USER_STATUS|" + username + "|" + status + "\n";//novo parametro[0] para identificar o status
             for (auto const &[userId, tratador]: sessoesAtivas) {
-                if (userId != pIdExcluido) {
+                if (userId != pIdExcluido) {//verificar se o usuario q vai ser notificado é o proprio usuario pra n notificar ele mesmo
                     tratador->enviarMensagemParaCliente(msg);
                 }
             }
@@ -803,9 +803,9 @@ namespace Servidor {
             uint32_t destinatarioId = destinatarioUserObj->getId();
             std::lock_guard<std::mutex> lock(mutexSessoes);
             auto it = sessoesAtivas.find(destinatarioId);
-            if (it != sessoesAtivas.end()) {
+            if (it != sessoesAtivas.end()) {//se o usuario foi encontrado na sessao ativa
                 TratadorCliente *tratadorDestino = it->second;
-                std::string comando = estaDigitando ? "TYPING_ON_NOTIFY|" : "TYPING_OFF_NOTIFY|";
+                std::string comando = estaDigitando ? "TYPING_ON_NOTIFY|" : "TYPING_OFF_NOTIFY|";//montando o comando pra enviar pro cliente
                 std::string msgParaEnviar = comando + remetente + "\n";
                 tratadorDestino->enviarMensagemParaCliente(msgParaEnviar);
             }
